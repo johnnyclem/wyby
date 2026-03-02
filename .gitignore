@@ -32,6 +32,12 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# Environment
+.env
+
+# Logs
+*.log
+
 # Distribution
 *.tar.gz
 *.zip
