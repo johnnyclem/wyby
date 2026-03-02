@@ -1,9 +1,9 @@
 ---
-name: RuneTUI
+name: wyby
 description: A Python library for developing terminal-based (TUI) games using modern terminal capabilities where supported, with explicit fallbacks and limitations documented.
 version_target: 0.1.0 (MVP)
 pitch: |
-  RuneTUI provides developers with building blocks to create interactive games in the terminal.
+  wyby (aka RuneTUI) provides developers with building blocks to create interactive games in the terminal.
   It leverages libraries like Rich for rendering and handles basic game mechanics.
   Users must be aware of terminal-specific behaviors, input library limitations
   (such as potential need for elevated permissions on Linux for full keyboard support),
