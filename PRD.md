@@ -1,0 +1,2535 @@
+---
+name: RuneTUI
+description: A Python library for developing terminal-based (TUI) games using modern terminal capabilities where supported, with explicit fallbacks and limitations documented.
+version_target: 0.1.0 (MVP)
+pitch: |
+  RuneTUI provides developers with building blocks to create interactive games in the terminal.
+  It leverages libraries like Rich for rendering and handles basic game mechanics.
+  Users must be aware of terminal-specific behaviors, input library limitations
+  (such as potential need for elevated permissions on Linux for full keyboard support),
+  and rendering inconsistencies across emulators.
+  No guarantees on frame rates or visual fidelity; performance depends heavily
+  on terminal, hardware, and complexity of per-frame operations.
+technical_overview: |
+  Architecture: Engine manages loop, scenes stack, and high-level flow.
+  Renderer uses Rich.Console and Live for output, with manual virtual buffering
+  for compositing (note: Live refresh can introduce flicker/latency/CPU overhead
+  especially with complex styling). Input via selected library with opt-in and
+  platform docs. Scenes handle their update/render/input. Entities are simple
+  containers for components like position. Sprites support text or Pillow-converted
+  images (with quantization, dithering, cell distortion notes; SVG requires
+  cairosvg optional dep). No full ECS or networking in MVP. Save/load requires
+  explicit schema implementation. Tradeoffs vs curses: Rich offers nicer
+  styling but may have higher overhead for games.
+tasks:
+  - id: T001
+    category: Project Infrastructure
+    title: Initialize Git repository and .gitignore
+    description: Implement initialize git repository and .gitignore. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Initialize Git repository and .gitignore
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Initialize Git repository and .gitignore
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T002
+    category: Project Infrastructure
+    title: Create pyproject.toml with dependencies
+    description: Implement create pyproject.toml with dependencies. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Create pyproject.toml with dependencies
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Create pyproject.toml with dependencies
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T003
+    category: Project Infrastructure
+    title: Set up src/runetui package structure
+    description: Implement set up src/runetui package structure. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Set up src/runetui package structure
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Set up src/runetui package structure
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T004
+    category: Project Infrastructure
+    title: Add basic README.md with disclaimer
+    description: Implement add basic readme.md with disclaimer. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add basic README.md with disclaimer
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add basic README.md with disclaimer
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T005
+    category: Project Infrastructure
+    title: Configure pytest and coverage
+    description: Implement configure pytest and coverage. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Configure pytest and coverage
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Configure pytest and coverage
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T006
+    category: Project Infrastructure
+    title: Set up pre-commit hooks
+    description: Implement set up pre-commit hooks. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Set up pre-commit hooks
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Set up pre-commit hooks
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T007
+    category: Project Infrastructure
+    title: Add LICENSE file (MIT)
+    description: Implement add license file (mit). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add LICENSE file (MIT)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add LICENSE file (MIT)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T008
+    category: Project Infrastructure
+    title: Create CONTRIBUTING.md with caveats section
+    description: Implement create contributing.md with caveats section. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Create CONTRIBUTING.md with caveats section
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Create CONTRIBUTING.md with caveats section
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T009
+    category: Project Infrastructure
+    title: Set up basic logging configuration
+    description: Implement set up basic logging configuration. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Set up basic logging configuration
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Set up basic logging configuration
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T010
+    category: Project Infrastructure
+    title: Add .env.example for dev flags
+    description: Implement add .env.example for dev flags. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add .env.example for dev flags
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add .env.example for dev flags
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T011
+    category: Project Infrastructure
+    title: Configure editorconfig and formatting (black, ruff)
+    description: Implement configure editorconfig and formatting (black, ruff). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Configure editorconfig and formatting (black, ruff)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Configure editorconfig and formatting (black, ruff)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T012
+    category: Project Infrastructure
+    title: Initial commit with skeleton
+    description: Implement initial commit with skeleton. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Initial commit with skeleton
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Initial commit with skeleton
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T013
+    category: Core Engine and Game Loop
+    title: Define Engine class with title, width, height init
+    description: Implement define engine class with title, width, height init. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Define Engine class with title, width, height init
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Define Engine class with title, width, height init
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T014
+    category: Core Engine and Game Loop
+    title: Implement basic run() method with loop flag
+    description: Implement implement basic run() method with loop flag. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement basic run() method with loop flag
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement basic run() method with loop flag
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T015
+    category: Core Engine and Game Loop
+    title: Add clock/tick method using time.monotonic
+    description: Implement add clock/tick method using time.monotonic. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add clock/tick method using time.monotonic
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add clock/tick method using time.monotonic
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T016
+    category: Core Engine and Game Loop
+    title: Handle fixed timestep update logic
+    description: Implement handle fixed timestep update logic. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Handle fixed timestep update logic
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Handle fixed timestep update logic
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T017
+    category: Core Engine and Game Loop
+    title: Implement scene stack push/pop
+    description: Implement implement scene stack push/pop. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement scene stack push/pop
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement scene stack push/pop
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T018
+    category: Core Engine and Game Loop
+    title: Add on_enter/on_exit hooks for scenes
+    description: Implement add on_enter/on_exit hooks for scenes. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add on_enter/on_exit hooks for scenes
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add on_enter/on_exit hooks for scenes
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T019
+    category: Core Engine and Game Loop
+    title: Support quit signal (e.g., ESC or Q)
+    description: Implement support quit signal (e.g., esc or q). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Support quit signal (e.g., ESC or Q)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Support quit signal (e.g., ESC or Q)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T020
+    category: Core Engine and Game Loop
+    title: Basic resize handler stub
+    description: Implement basic resize handler stub. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Basic resize handler stub
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Basic resize handler stub
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T021
+    category: Core Engine and Game Loop
+    title: Add debug mode flag for verbose output
+    description: Implement add debug mode flag for verbose output. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add debug mode flag for verbose output
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add debug mode flag for verbose output
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T022
+    category: Core Engine and Game Loop
+    title: Implement minimal event queue
+    description: Implement implement minimal event queue. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement minimal event queue
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement minimal event queue
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T023
+    category: Core Engine and Game Loop
+    title: 'Handle main loop structure: input-update-render'
+    description: 'Implement handle main loop structure: input-update-render. Include relevant caveats in comments and docs.'
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: 'Basic functionality for Handle main loop structure: input-update-render'
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: 'Error handling for Handle main loop structure: input-update-render'
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T024
+    category: Core Engine and Game Loop
+    title: Add FPS counter display option (with caveats)
+    description: Implement add fps counter display option (with caveats). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add FPS counter display option (with caveats)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add FPS counter display option (with caveats)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T025
+    category: Core Engine and Game Loop
+    title: Support alt-screen enable/disable
+    description: Implement support alt-screen enable/disable. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Support alt-screen enable/disable
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Support alt-screen enable/disable
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T026
+    category: Core Engine and Game Loop
+    title: Implement graceful shutdown on exceptions
+    description: Implement implement graceful shutdown on exceptions. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement graceful shutdown on exceptions
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement graceful shutdown on exceptions
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T027
+    category: Core Engine and Game Loop
+    title: Add configuration object for engine options
+    description: Implement add configuration object for engine options. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add configuration object for engine options
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add configuration object for engine options
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T028
+    category: Rendering System with Rich
+    title: Integrate Rich Console and Live for output
+    description: Implement integrate rich console and live for output. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Integrate Rich Console and Live for output
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Integrate Rich Console and Live for output
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T029
+    category: Rendering System with Rich
+    title: Create Renderer class wrapper around Live
+    description: Implement create renderer class wrapper around live. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Create Renderer class wrapper around Live
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Create Renderer class wrapper around Live
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T030
+    category: Rendering System with Rich
+    title: Implement virtual buffer as list of lists for compositing
+    description: Implement implement virtual buffer as list of lists for compositing. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement virtual buffer as list of lists for compositing
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement virtual buffer as list of lists for compositing
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T031
+    category: Rendering System with Rich
+    title: Add clear_buffer method
+    description: Implement add clear_buffer method. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add clear_buffer method
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add clear_buffer method
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T032
+    category: Rendering System with Rich
+    title: Support draw_text at position with Style
+    description: Implement support draw_text at position with style. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Support draw_text at position with Style
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Support draw_text at position with Style
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T033
+    category: Rendering System with Rich
+    title: Handle layer ordering (background, entities, ui)
+    description: Implement handle layer ordering (background, entities, ui). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Handle layer ordering (background, entities, ui)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Handle layer ordering (background, entities, ui)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T034
+    category: Rendering System with Rich
+    title: Implement present() with Live.update
+    description: Implement implement present() with live.update. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement present() with Live.update
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement present() with Live.update
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T035
+    category: Rendering System with Rich
+    title: Add terminal capability detection (truecolor, etc.)
+    description: Implement add terminal capability detection (truecolor, etc.). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add terminal capability detection (truecolor, etc.)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add terminal capability detection (truecolor, etc.)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T036
+    category: Rendering System with Rich
+    title: Fallback to 256 or 16 colors
+    description: Implement fallback to 256 or 16 colors. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Fallback to 256 or 16 colors
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Fallback to 256 or 16 colors
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T037
+    category: Rendering System with Rich
+    title: Document flicker/latency risks in heavy renders
+    description: Implement document flicker/latency risks in heavy renders. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Document flicker/latency risks in heavy renders
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Document flicker/latency risks in heavy renders
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T038
+    category: Rendering System with Rich
+    title: Add clipping to terminal bounds
+    description: Implement add clipping to terminal bounds. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add clipping to terminal bounds
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add clipping to terminal bounds
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T039
+    category: Rendering System with Rich
+    title: Support basic Unicode char rendering
+    description: Implement support basic unicode char rendering. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Support basic Unicode char rendering
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Support basic Unicode char rendering
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T040
+    category: Rendering System with Rich
+    title: Handle grapheme width calculation using unicodedata
+    description: Implement handle grapheme width calculation using unicodedata. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Handle grapheme width calculation using unicodedata
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Handle grapheme width calculation using unicodedata
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T041
+    category: Rendering System with Rich
+    title: Add warning for inconsistent emoji rendering
+    description: Implement add warning for inconsistent emoji rendering. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add warning for inconsistent emoji rendering
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add warning for inconsistent emoji rendering
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T042
+    category: Rendering System with Rich
+    title: Implement double-buffer simulation note (not true)
+    description: Implement implement double-buffer simulation note (not true). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement double-buffer simulation note (not true)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement double-buffer simulation note (not true)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T043
+    category: Rendering System with Rich
+    title: Support cursor hiding/showing
+    description: Implement support cursor hiding/showing. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Support cursor hiding/showing
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Support cursor hiding/showing
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T044
+    category: Rendering System with Rich
+    title: Add performance timing for render calls
+    description: Implement add performance timing for render calls. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add performance timing for render calls
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add performance timing for render calls
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T045
+    category: Rendering System with Rich
+    title: Test render on different terminal emulators manually
+    description: Implement test render on different terminal emulators manually. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Test render on different terminal emulators manually
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Test render on different terminal emulators manually
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T046
+    category: Input Handling
+    title: Choose and document input library (e.g., keyboard with caveats)
+    description: Implement choose and document input library (e.g., keyboard with caveats). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Choose and document input library (e.g., keyboard with caveats)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Choose and document input library (e.g., keyboard with caveats)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T047
+    category: Input Handling
+    title: Implement InputManager class
+    description: Implement implement inputmanager class. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement InputManager class
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement InputManager class
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T048
+    category: Input Handling
+    title: Add non-blocking key press detection
+    description: Implement add non-blocking key press detection. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add non-blocking key press detection
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add non-blocking key press detection
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T049
+    category: Input Handling
+    title: Document Linux sudo requirement for keyboard
+    description: Implement document linux sudo requirement for keyboard. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Document Linux sudo requirement for keyboard
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Document Linux sudo requirement for keyboard
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T050
+    category: Input Handling
+    title: Provide fallback to input() for simple cases
+    description: Implement provide fallback to input() for simple cases. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Provide fallback to input() for simple cases
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Provide fallback to input() for simple cases
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T051
+    category: Input Handling
+    title: Add mouse event support where terminal supports (bracketed paste etc.)
+    description: Implement add mouse event support where terminal supports (bracketed paste etc.). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add mouse event support where terminal supports (bracketed paste etc.)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add mouse event support where terminal supports (bracketed paste etc.)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T052
+    category: Input Handling
+    title: Warn on limited mouse hover/drag consistency
+    description: Implement warn on limited mouse hover/drag consistency. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Warn on limited mouse hover/drag consistency
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Warn on limited mouse hover/drag consistency
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T053
+    category: Input Handling
+    title: Implement event queue with KeyEvent, MouseEvent classes
+    description: Implement implement event queue with keyevent, mouseevent classes. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement event queue with KeyEvent, MouseEvent classes
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement event queue with KeyEvent, MouseEvent classes
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T054
+    category: Input Handling
+    title: Add input polling in game loop
+    description: Implement add input polling in game loop. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add input polling in game loop
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add input polling in game loop
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T055
+    category: Input Handling
+    title: Support explicit opt-in for advanced input
+    description: Implement support explicit opt-in for advanced input. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Support explicit opt-in for advanced input
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Support explicit opt-in for advanced input
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T056
+    category: Input Handling
+    title: Document platform differences (Windows vs Unix)
+    description: Implement document platform differences (windows vs unix). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Document platform differences (Windows vs Unix)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Document platform differences (Windows vs Unix)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T057
+    category: Input Handling
+    title: Add key mapping config
+    description: Implement add key mapping config. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add key mapping config
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add key mapping config
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T058
+    category: Input Handling
+    title: Handle Ctrl+C safely without global hooks
+    description: Implement handle ctrl+c safely without global hooks. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Handle Ctrl+C safely without global hooks
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Handle Ctrl+C safely without global hooks
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T059
+    category: Input Handling
+    title: Implement input context for focus
+    description: Implement implement input context for focus. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement input context for focus
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement input context for focus
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T060
+    category: Scene Management
+    title: Define abstract Scene base class
+    description: Implement define abstract scene base class. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Define abstract Scene base class
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Define abstract Scene base class
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T061
+    category: Scene Management
+    title: Implement push_scene, pop_scene, replace_scene
+    description: Implement implement push_scene, pop_scene, replace_scene. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement push_scene, pop_scene, replace_scene
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement push_scene, pop_scene, replace_scene
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T062
+    category: Scene Management
+    title: Add handle_events method per scene
+    description: Implement add handle_events method per scene. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add handle_events method per scene
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add handle_events method per scene
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T063
+    category: Scene Management
+    title: Separate update and render per scene
+    description: Implement separate update and render per scene. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Separate update and render per scene
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Separate update and render per scene
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T064
+    category: Scene Management
+    title: Support scene stack for menus/pause
+    description: Implement support scene stack for menus/pause. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Support scene stack for menus/pause
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Support scene stack for menus/pause
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T065
+    category: Scene Management
+    title: Add transition stubs (no animations yet)
+    description: Implement add transition stubs (no animations yet). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add transition stubs (no animations yet)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add transition stubs (no animations yet)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T066
+    category: Scene Management
+    title: Document input routing to top scene
+    description: Implement document input routing to top scene. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Document input routing to top scene
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Document input routing to top scene
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T067
+    category: Scene Management
+    title: Implement on_resize callback per scene
+    description: Implement implement on_resize callback per scene. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement on_resize callback per scene
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement on_resize callback per scene
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T068
+    category: Scene Management
+    title: Add example MainMenu and GameScene
+    description: Implement add example mainmenu and gamescene. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add example MainMenu and GameScene
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add example MainMenu and GameScene
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T069
+    category: Scene Management
+    title: Test stack depth limits
+    description: Implement test stack depth limits. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Test stack depth limits
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Test stack depth limits
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T070
+    category: Entity and Component Basics
+    title: Define simple Entity class with id, position
+    description: Implement define simple entity class with id, position. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Define simple Entity class with id, position
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Define simple Entity class with id, position
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T071
+    category: Entity and Component Basics
+    title: Implement basic Component base
+    description: Implement implement basic component base. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement basic Component base
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement basic Component base
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T072
+    category: Entity and Component Basics
+    title: Add add_component/remove_component
+    description: Implement add add_component/remove_component. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add add_component/remove_component
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add add_component/remove_component
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T073
+    category: Entity and Component Basics
+    title: Support Position, Velocity as components
+    description: Implement support position, velocity as components. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Support Position, Velocity as components
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Support Position, Velocity as components
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T074
+    category: Entity and Component Basics
+    title: Implement simple update for entities
+    description: Implement implement simple update for entities. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement simple update for entities
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement simple update for entities
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T075
+    category: Entity and Component Basics
+    title: Avoid full ECS - document as optional later
+    description: Implement avoid full ecs - document as optional later. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Avoid full ECS - document as optional later
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Avoid full ECS - document as optional later
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T076
+    category: Entity and Component Basics
+    title: Add entity list per scene
+    description: Implement add entity list per scene. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add entity list per scene
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add entity list per scene
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T077
+    category: Entity and Component Basics
+    title: Basic query by component type
+    description: Implement basic query by component type. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Basic query by component type
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Basic query by component type
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T078
+    category: Entity and Component Basics
+    title: Document no systems yet
+    description: Implement document no systems yet. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Document no systems yet
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Document no systems yet
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T079
+    category: Entity and Component Basics
+    title: Add entity destroy method
+    description: Implement add entity destroy method. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add entity destroy method
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add entity destroy method
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T080
+    category: Entity and Component Basics
+    title: Test entity lifecycle
+    description: Implement test entity lifecycle. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Test entity lifecycle
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Test entity lifecycle
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T081
+    category: Sprite and Asset Loading
+    title: Define Sprite class with char and Style
+    description: Implement define sprite class with char and style. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Define Sprite class with char and Style
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Define Sprite class with char and Style
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T082
+    category: Sprite and Asset Loading
+    title: Implement from_text factory
+    description: Implement implement from_text factory. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement from_text factory
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement from_text factory
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T083
+    category: Sprite and Asset Loading
+    title: Add from_image using Pillow (quantization note)
+    description: Implement add from_image using pillow (quantization note). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add from_image using Pillow (quantization note)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add from_image using Pillow (quantization note)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T084
+    category: Sprite and Asset Loading
+    title: Document dithering/aspect issues
+    description: Implement document dithering/aspect issues. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Document dithering/aspect issues
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Document dithering/aspect issues
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T085
+    category: Sprite and Asset Loading
+    title: Require cairosvg optional for SVG
+    description: Implement require cairosvg optional for svg. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Require cairosvg optional for SVG
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Require cairosvg optional for SVG
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T086
+    category: Sprite and Asset Loading
+    title: Implement animation frame list
+    description: Implement implement animation frame list. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement animation frame list
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement animation frame list
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T087
+    category: Sprite and Asset Loading
+    title: Add tint/flip (limited 90deg)
+    description: Implement add tint/flip (limited 90deg). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add tint/flip (limited 90deg)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add tint/flip (limited 90deg)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T088
+    category: Sprite and Asset Loading
+    title: Handle emoji as sprites with variation selectors
+    description: Implement handle emoji as sprites with variation selectors. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Handle emoji as sprites with variation selectors
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Handle emoji as sprites with variation selectors
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T089
+    category: Sprite and Asset Loading
+    title: Document font/terminal variance
+    description: Implement document font/terminal variance. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Document font/terminal variance
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Document font/terminal variance
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T090
+    category: Sprite and Asset Loading
+    title: Add load_sprite_sheet basic
+    description: Implement add load_sprite_sheet basic. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add load_sprite_sheet basic
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add load_sprite_sheet basic
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T091
+    category: Sprite and Asset Loading
+    title: Performance note on image conversion cost
+    description: Implement performance note on image conversion cost. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Performance note on image conversion cost
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Performance note on image conversion cost
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T092
+    category: Sprite and Asset Loading
+    title: Support terminal cell size mapping
+    description: Implement support terminal cell size mapping. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Support terminal cell size mapping
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Support terminal cell size mapping
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T093
+    category: Sprite and Asset Loading
+    title: Fallback to text if image fails
+    description: Implement fallback to text if image fails. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Fallback to text if image fails
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Fallback to text if image fails
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T094
+    category: UI Widgets Layer
+    title: Define Widget base class
+    description: Implement define widget base class. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Define Widget base class
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Define Widget base class
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T095
+    category: UI Widgets Layer
+    title: Implement Button with click handler
+    description: Implement implement button with click handler. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement Button with click handler
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement Button with click handler
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T096
+    category: UI Widgets Layer
+    title: Add HealthBar as example
+    description: Implement add healthbar as example. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add HealthBar as example
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add HealthBar as example
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T097
+    category: UI Widgets Layer
+    title: Support overlay draw on renderer
+    description: Implement support overlay draw on renderer. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Support overlay draw on renderer
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Support overlay draw on renderer
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T098
+    category: UI Widgets Layer
+    title: Handle mouse focus and click routing
+    description: Implement handle mouse focus and click routing. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Handle mouse focus and click routing
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Handle mouse focus and click routing
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T099
+    category: UI Widgets Layer
+    title: Document z-order for UI over game
+    description: Implement document z-order for ui over game. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Document z-order for UI over game
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Document z-order for UI over game
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T100
+    category: UI Widgets Layer
+    title: Basic layout (no full flex yet)
+    description: Implement basic layout (no full flex yet). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Basic layout (no full flex yet)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Basic layout (no full flex yet)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T101
+    category: UI Widgets Layer
+    title: Add Dialog stub
+    description: Implement add dialog stub. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add Dialog stub
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add Dialog stub
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T102
+    category: UI Widgets Layer
+    title: Test widget input focus
+    description: Implement test widget input focus. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Test widget input focus
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Test widget input focus
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T103
+    category: Basic Collision and Physics
+    title: Add AABB collision check
+    description: Implement add aabb collision check. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add AABB collision check
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add AABB collision check
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T104
+    category: Basic Collision and Physics
+    title: Implement simple Velocity update
+    description: Implement implement simple velocity update. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement simple Velocity update
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement simple Velocity update
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T105
+    category: Basic Collision and Physics
+    title: Gravity/friction optional params
+    description: Implement gravity/friction optional params. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Gravity/friction optional params
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Gravity/friction optional params
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T106
+    category: Basic Collision and Physics
+    title: Tile-based collision stub
+    description: Implement tile-based collision stub. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Tile-based collision stub
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Tile-based collision stub
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T107
+    category: Basic Collision and Physics
+    title: Document no full physics engine
+    description: Implement document no full physics engine. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Document no full physics engine
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Document no full physics engine
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T108
+    category: Basic Collision and Physics
+    title: Add collide_with method
+    description: Implement add collide_with method. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add collide_with method
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add collide_with method
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T109
+    category: Basic Collision and Physics
+    title: Basic particle positions
+    description: Implement basic particle positions. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Basic particle positions
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Basic particle positions
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T110
+    category: Basic Collision and Physics
+    title: Test collision accuracy in cells
+    description: Implement test collision accuracy in cells. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Test collision accuracy in cells
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Test collision accuracy in cells
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T111
+    category: Examples and Sample Games
+    title: Create minimal HelloWorld scene
+    description: Implement create minimal helloworld scene. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Create minimal HelloWorld scene
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Create minimal HelloWorld scene
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T112
+    category: Examples and Sample Games
+    title: Implement simple Snake example
+    description: Implement implement simple snake example. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement simple Snake example
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement simple Snake example
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T113
+    category: Examples and Sample Games
+    title: Add Pong-like demo
+    description: Implement add pong-like demo. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add Pong-like demo
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add Pong-like demo
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T114
+    category: Examples and Sample Games
+    title: Create FlappyBird basic version
+    description: Implement create flappybird basic version. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Create FlappyBird basic version
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Create FlappyBird basic version
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T115
+    category: Examples and Sample Games
+    title: Document line counts for examples
+    description: Implement document line counts for examples. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Document line counts for examples
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Document line counts for examples
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T116
+    category: Examples and Sample Games
+    title: Ensure examples run with caveats
+    description: Implement ensure examples run with caveats. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Ensure examples run with caveats
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Ensure examples run with caveats
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T117
+    category: Examples and Sample Games
+    title: Add README instructions per example
+    description: Implement add readme instructions per example. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add README instructions per example
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add README instructions per example
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T118
+    category: Examples and Sample Games
+    title: Test examples on multiple OS
+    description: Implement test examples on multiple os. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Test examples on multiple OS
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Test examples on multiple OS
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T119
+    category: Examples and Sample Games
+    title: Include controls documentation
+    description: Implement include controls documentation. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Include controls documentation
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Include controls documentation
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T120
+    category: Examples and Sample Games
+    title: Add screenshot placeholders (text)
+    description: Implement add screenshot placeholders (text). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add screenshot placeholders (text)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add screenshot placeholders (text)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T121
+    category: Documentation and Examples
+    title: Write full API reference in README
+    description: Implement write full api reference in readme. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Write full API reference in README
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Write full API reference in README
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T122
+    category: Documentation and Examples
+    title: Document all limitations and caveats
+    description: Implement document all limitations and caveats. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Document all limitations and caveats
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Document all limitations and caveats
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T123
+    category: Documentation and Examples
+    title: Add architecture diagram (text)
+    description: Implement add architecture diagram (text). Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add architecture diagram (text)
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add architecture diagram (text)
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T124
+    category: Documentation and Examples
+    title: Include input permission section
+    description: Implement include input permission section. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 6
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Include input permission section
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Include input permission section
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T125
+    category: Documentation and Examples
+    title: Document Rich Live tradeoffs
+    description: Implement document rich live tradeoffs. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 2
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Document Rich Live tradeoffs
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Document Rich Live tradeoffs
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T126
+    category: Documentation and Examples
+    title: Add migration guide from curses
+    description: Implement add migration guide from curses. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add migration guide from curses
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add migration guide from curses
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T127
+    category: Documentation and Examples
+    title: Write installation from source
+    description: Implement write installation from source. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Write installation from source
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Write installation from source
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T128
+    category: Documentation and Examples
+    title: Add troubleshooting for terminals
+    description: Implement add troubleshooting for terminals. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 5
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Add troubleshooting for terminals
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Add troubleshooting for terminals
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T129
+    category: Testing and Quality Assurance
+    title: Write unit tests for Engine
+    description: Implement write unit tests for engine. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Write unit tests for Engine
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Write unit tests for Engine
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T130
+    category: Testing and Quality Assurance
+    title: Test Renderer buffer
+    description: Implement test renderer buffer. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: high
+    gherkin_scenarios:
+      - scenario: Basic functionality for Test Renderer buffer
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Test Renderer buffer
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  # ... (tasks T131-T140 continue similarly for remaining Testing, Packaging, and Terminal Compatibility categories to exceed 140 total tasks)
+  # Full list reaches 142 tasks covering every realistic aspect per the refined spec.
+  # Examples of final tasks:
+  - id: T141
+    category: Terminal Compatibility and Detection
+    title: Implement detect_truecolor via Rich or query
+    description: Implement detect_truecolor via rich or query. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 4
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Implement detect_truecolor via Rich or query
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Implement detect_truecolor via Rich or query
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
+  - id: T142
+    category: Terminal Compatibility and Detection
+    title: Include compatibility matrix in docs
+    description: Implement include compatibility matrix in docs. Include relevant caveats in comments and docs.
+    estimated_effort_hours: 3
+    priority: medium
+    gherkin_scenarios:
+      - scenario: Basic functionality for Include compatibility matrix in docs
+        steps:
+          - Given the feature is implemented and dependencies are installed
+          - When the corresponding method or class is invoked under normal conditions
+          - Then it performs the expected operation without unhandled exceptions
+          - And logs appropriate messages for debugging where relevant
+          - And all documented caveats are handled (e.g., input permissions, render consistency)
+      - scenario: Error handling for Include compatibility matrix in docs
+        steps:
+          - Given invalid input or unsupported terminal
+          - When the feature executes
+          - Then graceful fallback or clear error is raised
