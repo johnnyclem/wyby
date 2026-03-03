@@ -22,6 +22,7 @@ dependencies = [
 # runtime dependency tree.
 dev = [
     "pytest>=7.0",
+    "pytest-cov>=4.0",
     "ruff>=0.4.0",
 ]
 
@@ -30,3 +31,39 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Caveat: --cov-branch enables branch coverage, which is stricter than line
+# coverage alone. Early in development some branches may be hard to exercise
+# (e.g. platform-specific paths). Adjust --cov-fail-under as the codebase
+# matures. Currently set conservatively since most modules are stubs.
+addopts = [
+    "--strict-markers",
+    "--cov=wyby",
+    "--cov-branch",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+
+[tool.coverage.run]
+source = ["wyby"]
+branch = true
+# Caveat: omit patterns use fnmatch syntax relative to the source tree.
+# The _platform module may need platform-specific test fixtures later;
+# for now it is included in coverage.
+
+[tool.coverage.report]
+show_missing = true
+# Caveat: fail_under is intentionally unset during pre-release. Most modules
+# are stubs with no real logic yet. Set a threshold (e.g. 80) once the core
+# modules (app, renderer, grid) have real implementations.
+# fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "@overload",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
