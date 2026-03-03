@@ -48,7 +48,7 @@ from wyby.diagnostics import (
     detect_capabilities,
 )
 from wyby.event import Event, EventQueue
-from wyby.input import InputManager, KeyEvent, MouseEvent, parse_input_events, parse_key_events
+from wyby.input import InputManager, InputMode, KeyEvent, MouseEvent, parse_input_events, parse_key_events
 from wyby.grid import Cell, CellBuffer, DoubleBuffer, clip_to_terminal
 from wyby.unicode import (
     char_width,
@@ -101,6 +101,7 @@ __all__ = [
     "Event",
     "EventQueue",
     "InputManager",
+    "InputMode",
     "KeyEvent",
     "MouseEvent",
     "FPSCounter",

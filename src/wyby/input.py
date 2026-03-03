@@ -39,9 +39,10 @@ Library choice — stdin via termios/msvcrt (not ``keyboard``):
 
 Usage::
 
-    from wyby.input import InputManager, KeyEvent
+    from wyby.input import InputManager, InputMode, KeyEvent
 
-    manager = InputManager()
+    # Explicit opt-in to raw-mode key detection:
+    manager = InputManager(input_mode=InputMode.RAW_KEYS)
     manager.start()
     try:
         events = manager.poll()
@@ -52,6 +53,9 @@ Usage::
                 break
     finally:
         manager.stop()
+
+    # Or use individual flags for fine-grained control:
+    manager = InputManager(mouse=True, mouse_motion=False)
 
 Caveats:
     - Terminal input is inherently platform-dependent.  On Unix, raw
@@ -82,6 +86,7 @@ Caveats:
 from __future__ import annotations
 
 import dataclasses
+import enum
 import logging
 import sys
 from typing import TYPE_CHECKING
@@ -92,6 +97,98 @@ if TYPE_CHECKING:
     from wyby._platform import InputBackend
 
 _logger = logging.getLogger(__name__)
+
+
+class InputMode(enum.Enum):
+    """Input feature tiers requiring explicit opt-in.
+
+    Each mode builds on the previous one, adding capabilities that
+    require progressively more terminal modification.  Higher modes
+    carry greater risk of leaving the terminal in a broken state if
+    the process exits uncleanly (e.g., ``SIGKILL``).
+
+    Use this enum with :class:`InputManager` to declare up front
+    which level of input you need::
+
+        from wyby.input import InputManager, InputMode
+
+        # Line-buffered input — no terminal modification.
+        mgr = InputManager(input_mode=InputMode.BASIC)
+
+        # Real-time key detection — enters raw mode.
+        mgr = InputManager(input_mode=InputMode.RAW_KEYS)
+
+        # Mouse click/scroll tracking — further terminal modification.
+        mgr = InputManager(input_mode=InputMode.MOUSE)
+
+        # Full input — mouse + motion tracking (high event volume).
+        mgr = InputManager(input_mode=InputMode.FULL)
+
+    Caveats:
+        - ``RAW_KEYS`` and above modify terminal state (raw mode).
+          The terminal's echo and line-editing are disabled.  If the
+          process exits without restoring cooked mode (e.g., via
+          ``SIGKILL``), run ``reset`` or ``stty sane`` to recover.
+        - ``MOUSE`` enables SGR mouse reporting (xterm mode 1006).
+          Not all terminals support mouse reporting — see
+          :class:`MouseEvent` for compatibility details.  Middle-click
+          paste may not work while mouse mode is enabled.
+        - ``FULL`` adds motion tracking (mode 1003), which generates
+          a mouse event for *every* cursor movement.  This can flood
+          the event queue and degrade performance.  Only use this if
+          your game needs hover or drag tracking.
+        - ``BASIC`` never enters raw mode and uses Python's
+          ``input()`` for line-buffered reads.  Arrow keys, Ctrl+key
+          combos, and real-time detection are not available.  This
+          mode is suitable for turn-based games or menu prompts.
+    """
+
+    BASIC = "basic"
+    """Line-buffered input via ``input()`` — no terminal modification.
+
+    Caveats:
+        - ``poll()`` always returns ``[]`` and ``has_input()`` always
+          returns ``False``.  Use ``read_line()`` for blocking input.
+        - No special keys (arrows, function keys, Ctrl+key).
+        - Echo is on — the user sees what they type.
+    """
+
+    RAW_KEYS = "raw_keys"
+    """Raw-mode key detection — real-time, non-blocking.
+
+    Caveats:
+        - Modifies terminal state: disables echo and line buffering.
+        - Must be cleaned up via ``stop()`` or context manager.
+        - ``SIGKILL`` cannot be caught — terminal may be left broken.
+        - Ctrl+C (0x03) raises ``KeyboardInterrupt``.
+        - Ctrl+S / Ctrl+Q may be swallowed by XON/XOFF flow control
+          on some terminals.
+    """
+
+    MOUSE = "mouse"
+    """Raw-mode keys + mouse click/scroll reporting.
+
+    Caveats:
+        - All ``RAW_KEYS`` caveats apply.
+        - Enables SGR extended mouse mode (xterm mode 1006).
+        - Terminal support varies — see :class:`MouseEvent` docstring.
+        - macOS Terminal.app has limited mouse support.
+        - Middle-click paste may be intercepted by mouse mode.
+        - tmux/screen require explicit ``set -g mouse on``.
+    """
+
+    FULL = "full"
+    """Raw-mode keys + mouse clicks + motion tracking.
+
+    Caveats:
+        - All ``MOUSE`` caveats apply.
+        - Motion tracking (mode 1003) reports cursor movement even
+          without a button held, generating high event volume.
+        - May degrade performance on slow terminals or SSH sessions.
+        - Consider using ``MOUSE`` mode unless hover/drag tracking
+          is essential.
+    """
+
 
 # ANSI escape sequence lookup table.
 # Maps the final byte of CSI sequences (after \x1b[) to key names.
@@ -600,6 +697,11 @@ class InputManager:
             enable motion tracking (mode 1003) which reports mouse
             movement even without a button held.  Generates high event
             volume — use sparingly.  Defaults to ``False``.
+        input_mode: An :class:`InputMode` value that sets the input
+            feature tier.  When provided, this overrides the
+            ``allow_fallback``, ``mouse``, and ``mouse_motion``
+            flags.  See :class:`InputMode` for available tiers and
+            their caveats.
 
     Caveats:
         - You **must** call :meth:`stop` (or use the context manager)
@@ -625,7 +727,10 @@ class InputManager:
           since there is no terminal to receive mouse escape sequences.
     """
 
-    __slots__ = ("_backend", "_started", "_fallback", "_mouse", "_mouse_motion")
+    __slots__ = (
+        "_backend", "_started", "_fallback", "_mouse",
+        "_mouse_motion", "_input_mode",
+    )
 
     def __init__(
         self,
@@ -633,7 +738,26 @@ class InputManager:
         allow_fallback: bool = False,
         mouse: bool = False,
         mouse_motion: bool = False,
+        input_mode: InputMode | None = None,
     ) -> None:
+        # When input_mode is provided, it takes precedence over the
+        # individual mouse/mouse_motion/allow_fallback flags.  This
+        # gives callers a single, self-documenting knob for declaring
+        # the level of terminal modification they need.
+        #
+        # The individual flags are retained for backward compatibility
+        # and for cases where callers want fine-grained control (e.g.,
+        # mouse=True without motion).
+        if input_mode is not None:
+            if not isinstance(input_mode, InputMode):
+                raise TypeError(
+                    f"input_mode must be an InputMode enum value, "
+                    f"got {type(input_mode).__name__}"
+                )
+            allow_fallback = input_mode == InputMode.BASIC
+            mouse = input_mode in (InputMode.MOUSE, InputMode.FULL)
+            mouse_motion = input_mode == InputMode.FULL
+
         if backend is None:
             from wyby._platform import create_backend
 
@@ -643,11 +767,17 @@ class InputManager:
         self._fallback = allow_fallback
         self._mouse = mouse
         self._mouse_motion = mouse_motion
+        self._input_mode = input_mode
 
     @property
     def is_started(self) -> bool:
         """Whether the manager is active (raw mode entered)."""
         return self._started
+
+    @property
+    def input_mode(self) -> InputMode | None:
+        """The :class:`InputMode` tier, or ``None`` if not specified."""
+        return self._input_mode
 
     @property
     def is_fallback(self) -> bool:
@@ -664,6 +794,9 @@ class InputManager:
     def start(self) -> None:
         """Enter raw mode and begin accepting input.
 
+        If ``input_mode`` is :attr:`InputMode.BASIC`, skips raw mode
+        entirely and uses the fallback backend for line-buffered input.
+
         If ``allow_fallback`` was set and stdin is not a TTY, silently
         switches to :class:`~wyby._platform.FallbackInputBackend`
         instead of raising.
@@ -677,6 +810,22 @@ class InputManager:
         """
         if self._started:
             return
+
+        # BASIC mode deliberately avoids raw mode — use fallback
+        # backend for safe, line-buffered input with no terminal
+        # modification.
+        if self._input_mode == InputMode.BASIC:
+            from wyby._platform import FallbackInputBackend
+
+            self._backend = FallbackInputBackend()
+            self._backend.enter_raw_mode()
+            self._started = True
+            _logger.debug(
+                "InputManager started in BASIC mode (line-buffered, "
+                "no terminal modification)"
+            )
+            return
+
         try:
             self._backend.enter_raw_mode()
         except RuntimeError:
@@ -878,6 +1027,9 @@ class InputManager:
         self.stop()
 
     def __repr__(self) -> str:
+        parts = [f"started={self._started}"]
+        if self._input_mode is not None:
+            parts.append(f"input_mode={self._input_mode.value!r}")
         if self.is_fallback:
-            return f"InputManager(started={self._started}, fallback=True)"
-        return f"InputManager(started={self._started})"
+            parts.append("fallback=True")
+        return f"InputManager({', '.join(parts)})"

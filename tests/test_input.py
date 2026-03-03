@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from wyby.event import Event
-from wyby.input import InputManager, KeyEvent, parse_key_events
+from wyby.input import InputManager, InputMode, KeyEvent, parse_key_events
 
 
 # ---------------------------------------------------------------------------
@@ -951,3 +951,252 @@ class TestReadLine:
             KeyEvent(key="enter"),
         ]
         mgr.stop()
+
+
+# ---------------------------------------------------------------------------
+# InputMode — explicit opt-in for advanced input
+# ---------------------------------------------------------------------------
+
+
+class TestInputMode:
+    """InputMode enum values and properties."""
+
+    def test_basic_value(self) -> None:
+        assert InputMode.BASIC.value == "basic"
+
+    def test_raw_keys_value(self) -> None:
+        assert InputMode.RAW_KEYS.value == "raw_keys"
+
+    def test_mouse_value(self) -> None:
+        assert InputMode.MOUSE.value == "mouse"
+
+    def test_full_value(self) -> None:
+        assert InputMode.FULL.value == "full"
+
+    def test_all_members(self) -> None:
+        names = {m.name for m in InputMode}
+        assert names == {"BASIC", "RAW_KEYS", "MOUSE", "FULL"}
+
+
+class TestInputModeBasic:
+    """InputMode.BASIC — line-buffered input, no terminal modification."""
+
+    def test_basic_uses_fallback_backend(self) -> None:
+        """BASIC mode switches to FallbackInputBackend on start()."""
+        from wyby._platform import FallbackInputBackend
+
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.BASIC)
+        mgr.start()
+        assert mgr.is_fallback is True
+        assert isinstance(mgr._backend, FallbackInputBackend)
+        mgr.stop()
+
+    def test_basic_poll_returns_empty(self) -> None:
+        """poll() always returns [] in BASIC mode."""
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.BASIC)
+        mgr.start()
+        assert mgr.poll() == []
+        mgr.stop()
+
+    def test_basic_has_input_returns_false(self) -> None:
+        """has_input() always returns False in BASIC mode."""
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.BASIC)
+        mgr.start()
+        assert mgr.has_input() is False
+        mgr.stop()
+
+    def test_basic_read_line_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """read_line() works in BASIC mode."""
+        monkeypatch.setattr("builtins.input", lambda prompt="": "hello")
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.BASIC)
+        mgr.start()
+        events = mgr.read_line()
+        assert len(events) == 6  # h, e, l, l, o, enter
+        assert events[-1] == KeyEvent(key="enter")
+        mgr.stop()
+
+    def test_basic_context_manager(self) -> None:
+        backend = _MockBackend()
+        with InputManager(backend=backend, input_mode=InputMode.BASIC) as mgr:
+            assert mgr.is_started is True
+            assert mgr.is_fallback is True
+        assert mgr.is_started is False
+
+    def test_basic_input_mode_property(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.BASIC)
+        assert mgr.input_mode is InputMode.BASIC
+
+
+class TestInputModeRawKeys:
+    """InputMode.RAW_KEYS — raw-mode key detection."""
+
+    def test_raw_keys_enters_raw_mode(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.RAW_KEYS)
+        mgr.start()
+        assert backend.is_raw is True
+        assert mgr.is_fallback is False
+        mgr.stop()
+
+    def test_raw_keys_poll_works(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.RAW_KEYS)
+        mgr.start()
+        backend.feed(b"\x1b[A")
+        events = mgr.poll()
+        assert events == [KeyEvent(key="up")]
+        mgr.stop()
+
+    def test_raw_keys_no_mouse(self) -> None:
+        """RAW_KEYS does not enable mouse — mouse=False."""
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.RAW_KEYS)
+        assert mgr._mouse is False
+        assert mgr._mouse_motion is False
+
+    def test_raw_keys_input_mode_property(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.RAW_KEYS)
+        assert mgr.input_mode is InputMode.RAW_KEYS
+
+
+class TestInputModeMouse:
+    """InputMode.MOUSE — raw-mode keys + mouse click/scroll."""
+
+    def test_mouse_flags_set(self) -> None:
+        """MOUSE mode enables mouse=True, mouse_motion=False."""
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.MOUSE)
+        assert mgr._mouse is True
+        assert mgr._mouse_motion is False
+
+    def test_mouse_enters_raw_mode(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.MOUSE)
+        mgr.start()
+        assert backend.is_raw is True
+        assert mgr.is_fallback is False
+        mgr.stop()
+
+    def test_mouse_input_mode_property(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.MOUSE)
+        assert mgr.input_mode is InputMode.MOUSE
+
+
+class TestInputModeFull:
+    """InputMode.FULL — raw-mode keys + mouse + motion tracking."""
+
+    def test_full_flags_set(self) -> None:
+        """FULL mode enables mouse=True and mouse_motion=True."""
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.FULL)
+        assert mgr._mouse is True
+        assert mgr._mouse_motion is True
+
+    def test_full_enters_raw_mode(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.FULL)
+        mgr.start()
+        assert backend.is_raw is True
+        mgr.stop()
+
+    def test_full_input_mode_property(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.FULL)
+        assert mgr.input_mode is InputMode.FULL
+
+
+class TestInputModeOverridesFlags:
+    """InputMode overrides individual mouse/fallback flags."""
+
+    def test_mode_overrides_mouse_false(self) -> None:
+        """input_mode=MOUSE overrides mouse=False."""
+        backend = _MockBackend()
+        mgr = InputManager(
+            backend=backend, mouse=False, input_mode=InputMode.MOUSE,
+        )
+        assert mgr._mouse is True
+
+    def test_mode_overrides_mouse_motion(self) -> None:
+        """input_mode=FULL overrides mouse_motion=False."""
+        backend = _MockBackend()
+        mgr = InputManager(
+            backend=backend, mouse_motion=False, input_mode=InputMode.FULL,
+        )
+        assert mgr._mouse_motion is True
+
+    def test_basic_overrides_allow_fallback(self) -> None:
+        """input_mode=BASIC sets allow_fallback=True."""
+        backend = _FailingBackend()
+        mgr = InputManager(
+            backend=backend, allow_fallback=False, input_mode=InputMode.BASIC,
+        )
+        mgr.start()
+        assert mgr.is_fallback is True
+        mgr.stop()
+
+    def test_raw_keys_overrides_mouse_true(self) -> None:
+        """input_mode=RAW_KEYS overrides mouse=True."""
+        backend = _MockBackend()
+        mgr = InputManager(
+            backend=backend, mouse=True, input_mode=InputMode.RAW_KEYS,
+        )
+        assert mgr._mouse is False
+
+
+class TestInputModeValidation:
+    """InputMode validation and edge cases."""
+
+    def test_invalid_input_mode_type_raises(self) -> None:
+        """Passing a non-InputMode value raises TypeError."""
+        backend = _MockBackend()
+        with pytest.raises(TypeError, match="InputMode"):
+            InputManager(backend=backend, input_mode="raw_keys")  # type: ignore[arg-type]
+
+    def test_none_input_mode_preserves_flags(self) -> None:
+        """input_mode=None (default) preserves individual flags."""
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, mouse=True, mouse_motion=True)
+        assert mgr._mouse is True
+        assert mgr._mouse_motion is True
+        assert mgr.input_mode is None
+
+    def test_repr_with_input_mode(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.RAW_KEYS)
+        assert "input_mode='raw_keys'" in repr(mgr)
+
+    def test_repr_basic_mode(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend, input_mode=InputMode.BASIC)
+        mgr.start()
+        r = repr(mgr)
+        assert "input_mode='basic'" in r
+        assert "fallback=True" in r
+        mgr.stop()
+
+    def test_repr_without_input_mode(self) -> None:
+        """No input_mode in repr when not specified."""
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        assert "input_mode" not in repr(mgr)
+
+
+class TestInputModeImport:
+    """InputMode should be importable from the top-level package."""
+
+    def test_importable_from_wyby(self) -> None:
+        from wyby import InputMode as IMFromInit
+
+        assert IMFromInit is InputMode
+
+    def test_in_all(self) -> None:
+        import wyby
+
+        assert "InputMode" in wyby.__all__
