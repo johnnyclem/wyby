@@ -310,6 +310,63 @@ if sys.platform == "win32":
             return self._raw
 
 
+class FallbackInputBackend(InputBackend):
+    """Fallback backend using line-buffered stdin for non-TTY environments.
+
+    Used when stdin is not a TTY (piped input, CI, containers without
+    ``-it``, etc.) and the caller has opted in via ``allow_fallback``.
+    Does **not** enter raw mode — terminal settings are left unchanged.
+
+    Intended for use with :meth:`InputManager.read_line`, which calls
+    Python's built-in ``input()`` for blocking, line-based interaction.
+    :meth:`poll` will always return an empty list because non-blocking
+    reads are not possible in cooked (line-buffered) mode without
+    platform-specific tricks.
+
+    Caveats:
+        - ``input()`` is **blocking** — it waits for a full line
+          terminated by Enter.  This is fundamentally different from the
+          non-blocking :meth:`poll` used in real-time game loops.
+        - No ANSI escape sequence support.  Arrow keys, function keys,
+          and modifier combinations (Ctrl+key) are not detectable.  Only
+          printable characters and Enter are reliably available.
+        - Echo is enabled — typed characters appear on screen.  The
+          terminal's built-in line editor handles backspace, cursor
+          movement, and history (if supported by the shell).
+        - ``has_input()`` always returns ``False`` because there is no
+          portable way to peek at cooked-mode stdin without blocking.
+        - This backend is suitable for simple menu-driven interfaces
+          (e.g., "press 1 for new game"), not real-time gameplay.
+    """
+
+    __slots__ = ("_active",)
+
+    def __init__(self) -> None:
+        self._active = False
+
+    def enter_raw_mode(self) -> None:
+        # No mode switch — stdin stays in cooked (line-buffered) mode.
+        self._active = True
+        _logger.debug("Fallback input backend activated (no raw mode)")
+
+    def exit_raw_mode(self) -> None:
+        self._active = False
+
+    def has_input(self) -> bool:
+        # Cannot peek at cooked-mode stdin portably without blocking.
+        return False
+
+    def read_bytes(self) -> bytes:
+        # Non-blocking reads are not possible in cooked mode.
+        # Use InputManager.read_line() instead.
+        return b""
+
+    @property
+    def is_raw(self) -> bool:
+        # Never actually in raw mode — always cooked/line-buffered.
+        return False
+
+
 def create_backend() -> InputBackend:
     """Create the appropriate input backend for the current platform.
 

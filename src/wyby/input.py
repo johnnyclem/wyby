@@ -371,10 +371,21 @@ class InputManager:
         with InputManager() as manager:
             events = manager.poll()
 
+    For non-TTY environments (piped input, CI, containers), set
+    ``allow_fallback=True`` to fall back to ``input()`` when raw
+    mode is unavailable::
+
+        with InputManager(allow_fallback=True) as manager:
+            # poll() returns [] in fallback mode — use read_line()
+            events = manager.read_line("Your move: ")
+
     Args:
         backend: An :class:`~wyby._platform.InputBackend` instance.
             If ``None``, one is created automatically for the current
             platform via :func:`~wyby._platform.create_backend`.
+        allow_fallback: If ``True``, fall back to Python's ``input()``
+            when raw mode is unavailable (stdin is not a TTY).  If
+            ``False`` (default), a ``RuntimeError`` is raised instead.
 
     Caveats:
         - You **must** call :meth:`stop` (or use the context manager)
@@ -388,32 +399,72 @@ class InputManager:
           to handle it gracefully (e.g., show a "really quit?" dialog).
         - The manager is not thread-safe.  Call :meth:`poll` only from
           the main loop thread.
+        - In fallback mode, :meth:`poll` always returns ``[]`` and
+          :meth:`has_input` always returns ``False``.  Use
+          :meth:`read_line` for blocking line-based input instead.
+          Arrow keys and Ctrl+key combos are not available in fallback
+          mode — only printable characters and Enter.
     """
 
-    __slots__ = ("_backend", "_started")
+    __slots__ = ("_backend", "_started", "_fallback")
 
-    def __init__(self, backend: InputBackend | None = None) -> None:
+    def __init__(
+        self,
+        backend: InputBackend | None = None,
+        allow_fallback: bool = False,
+    ) -> None:
         if backend is None:
             from wyby._platform import create_backend
 
             backend = create_backend()
         self._backend = backend
         self._started = False
+        self._fallback = allow_fallback
 
     @property
     def is_started(self) -> bool:
         """Whether the manager is active (raw mode entered)."""
         return self._started
 
+    @property
+    def is_fallback(self) -> bool:
+        """Whether the manager is using ``input()`` fallback mode.
+
+        Returns ``True`` if raw mode was unavailable and the manager
+        fell back to line-buffered input.  Only meaningful after
+        :meth:`start` has been called.
+        """
+        from wyby._platform import FallbackInputBackend
+
+        return isinstance(self._backend, FallbackInputBackend)
+
     def start(self) -> None:
         """Enter raw mode and begin accepting input.
 
+        If ``allow_fallback`` was set and stdin is not a TTY, silently
+        switches to :class:`~wyby._platform.FallbackInputBackend`
+        instead of raising.
+
         Raises:
-            RuntimeError: If stdin is not a TTY.
+            RuntimeError: If stdin is not a TTY and ``allow_fallback``
+                is ``False``.
         """
         if self._started:
             return
-        self._backend.enter_raw_mode()
+        try:
+            self._backend.enter_raw_mode()
+        except RuntimeError:
+            if not self._fallback:
+                raise
+            from wyby._platform import FallbackInputBackend
+
+            self._backend = FallbackInputBackend()
+            self._backend.enter_raw_mode()
+            _logger.info(
+                "Raw mode unavailable (stdin is not a TTY); "
+                "using input() fallback.  poll() will return []; "
+                "use read_line() for blocking input."
+            )
         self._started = True
         _logger.debug("InputManager started")
 
@@ -494,6 +545,8 @@ class InputManager:
               will produce unexpected events.  In practice this is
               extremely rare — escape sequences are short and arrive
               atomically.
+            - In fallback mode, this always returns ``[]``.  Use
+              :meth:`read_line` instead for blocking input.
         """
         if not self._started:
             raise RuntimeError(
@@ -505,6 +558,74 @@ class InputManager:
             return []
         return parse_key_events(raw)
 
+    def read_line(self, prompt: str = "") -> list[KeyEvent]:
+        """Read a line of input using Python's ``input()`` (blocking).
+
+        This is the primary input method when running in fallback mode
+        (stdin is not a TTY), but it also works in normal raw-mode
+        operation — :meth:`stop` is called before reading and
+        :meth:`start` is called after, so the terminal is temporarily
+        returned to cooked mode for ``input()`` to work correctly.
+
+        Each character in the entered line becomes a :class:`KeyEvent`,
+        followed by a final ``KeyEvent(key="enter")``.
+
+        Args:
+            prompt: Optional prompt string passed to ``input()``.
+
+        Returns:
+            A list of :class:`KeyEvent` objects.  Returns an empty
+            list on ``EOFError`` (e.g., stdin closed or Ctrl+D).
+
+        Caveats:
+            - **Blocking**: this call waits for the user to type a
+              full line and press Enter.  It is not suitable for
+              real-time game loops that need non-blocking input.
+            - **No special keys**: arrow keys, function keys, and
+              Ctrl+key combinations are not detectable.  Only
+              printable characters and Enter are returned.
+            - **Echo is on**: the user sees what they type.  The
+              terminal's line editor handles backspace and cursor
+              movement.
+            - In normal (raw-mode) operation, the terminal is
+              temporarily switched back to cooked mode for the
+              duration of the ``input()`` call.  This may cause a
+              visible mode-switch flicker on some terminals.
+
+        Usage::
+
+            with InputManager(allow_fallback=True) as manager:
+                events = manager.read_line("Enter command: ")
+                for event in events:
+                    if event.key == "q":
+                        break
+        """
+        if not self._started:
+            raise RuntimeError(
+                "InputManager.read_line() called before start().  "
+                "Call start() first or use the context manager."
+            )
+        # If in raw mode, temporarily exit so input() works correctly
+        # (raw mode disables echo and line editing).
+        was_raw = self._backend.is_raw
+        if was_raw:
+            self._backend.exit_raw_mode()
+        try:
+            line = input(prompt)
+        except EOFError:
+            return []
+        finally:
+            if was_raw:
+                self._backend.enter_raw_mode()
+        events: list[KeyEvent] = []
+        for ch in line:
+            if ch == " ":
+                events.append(KeyEvent(key="space"))
+            else:
+                events.append(KeyEvent(key=ch))
+        events.append(KeyEvent(key="enter"))
+        return events
+
     def __enter__(self) -> InputManager:
         self.start()
         return self
@@ -513,4 +634,6 @@ class InputManager:
         self.stop()
 
     def __repr__(self) -> str:
+        if self.is_fallback:
+            return f"InputManager(started={self._started}, fallback=True)"
         return f"InputManager(started={self._started})"

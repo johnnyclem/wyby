@@ -666,3 +666,288 @@ class TestNoSudoRequired:
         events = mgr.poll()
         assert len(events) == 5
         mgr.stop()
+
+
+# ---------------------------------------------------------------------------
+# FallbackInputBackend
+# ---------------------------------------------------------------------------
+
+
+class TestFallbackInputBackend:
+    """FallbackInputBackend for non-TTY environments."""
+
+    def test_enter_exit_raw_mode(self) -> None:
+        from wyby._platform import FallbackInputBackend
+
+        fb = FallbackInputBackend()
+        fb.enter_raw_mode()
+        # Never actually in raw mode.
+        assert fb.is_raw is False
+        fb.exit_raw_mode()
+
+    def test_has_input_always_false(self) -> None:
+        from wyby._platform import FallbackInputBackend
+
+        fb = FallbackInputBackend()
+        fb.enter_raw_mode()
+        assert fb.has_input() is False
+
+    def test_read_bytes_always_empty(self) -> None:
+        from wyby._platform import FallbackInputBackend
+
+        fb = FallbackInputBackend()
+        fb.enter_raw_mode()
+        assert fb.read_bytes() == b""
+
+    def test_is_raw_always_false(self) -> None:
+        from wyby._platform import FallbackInputBackend
+
+        fb = FallbackInputBackend()
+        assert fb.is_raw is False
+        fb.enter_raw_mode()
+        assert fb.is_raw is False
+
+
+# ---------------------------------------------------------------------------
+# Fallback mode — InputManager with allow_fallback
+# ---------------------------------------------------------------------------
+
+
+class _FailingBackend:
+    """A backend that always fails to enter raw mode (simulates non-TTY)."""
+
+    def __init__(self) -> None:
+        self._raw = False
+
+    def enter_raw_mode(self) -> None:
+        raise RuntimeError("stdin is not a TTY")
+
+    def exit_raw_mode(self) -> None:
+        self._raw = False
+
+    def has_input(self) -> bool:
+        return False
+
+    def read_bytes(self) -> bytes:
+        return b""
+
+    @property
+    def is_raw(self) -> bool:
+        return self._raw
+
+
+class TestFallbackMode:
+    """InputManager fallback to input() when raw mode is unavailable."""
+
+    def test_fallback_disabled_raises(self) -> None:
+        """Without allow_fallback, RuntimeError propagates."""
+        backend = _FailingBackend()
+        mgr = InputManager(backend=backend, allow_fallback=False)
+        with pytest.raises(RuntimeError, match="not a TTY"):
+            mgr.start()
+
+    def test_fallback_enabled_starts_successfully(self) -> None:
+        """With allow_fallback, start() switches to fallback backend."""
+        backend = _FailingBackend()
+        mgr = InputManager(backend=backend, allow_fallback=True)
+        mgr.start()
+        assert mgr.is_started is True
+        assert mgr.is_fallback is True
+        mgr.stop()
+
+    def test_fallback_poll_returns_empty(self) -> None:
+        """poll() always returns [] in fallback mode."""
+        backend = _FailingBackend()
+        mgr = InputManager(backend=backend, allow_fallback=True)
+        mgr.start()
+        assert mgr.poll() == []
+        mgr.stop()
+
+    def test_fallback_has_input_returns_false(self) -> None:
+        """has_input() always returns False in fallback mode."""
+        backend = _FailingBackend()
+        mgr = InputManager(backend=backend, allow_fallback=True)
+        mgr.start()
+        assert mgr.has_input() is False
+        mgr.stop()
+
+    def test_fallback_context_manager(self) -> None:
+        backend = _FailingBackend()
+        with InputManager(backend=backend, allow_fallback=True) as mgr:
+            assert mgr.is_started is True
+            assert mgr.is_fallback is True
+        assert mgr.is_started is False
+
+    def test_fallback_repr(self) -> None:
+        backend = _FailingBackend()
+        mgr = InputManager(backend=backend, allow_fallback=True)
+        mgr.start()
+        assert "fallback=True" in repr(mgr)
+        mgr.stop()
+
+    def test_non_fallback_repr_unchanged(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        assert repr(mgr) == "InputManager(started=False)"
+        mgr.start()
+        assert repr(mgr) == "InputManager(started=True)"
+        mgr.stop()
+
+    def test_is_fallback_false_for_normal_backend(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        assert mgr.is_fallback is False
+        mgr.stop()
+
+    def test_default_allow_fallback_is_false(self) -> None:
+        """allow_fallback defaults to False for backward compatibility."""
+        backend = _FailingBackend()
+        mgr = InputManager(backend=backend)
+        with pytest.raises(RuntimeError):
+            mgr.start()
+
+
+# ---------------------------------------------------------------------------
+# read_line — blocking input() fallback
+# ---------------------------------------------------------------------------
+
+
+class TestReadLine:
+    """InputManager.read_line() — blocking line input via input()."""
+
+    def test_simple_line(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Characters become KeyEvents, followed by enter."""
+        monkeypatch.setattr("builtins.input", lambda prompt="": "abc")
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        events = mgr.read_line()
+        assert events == [
+            KeyEvent(key="a"),
+            KeyEvent(key="b"),
+            KeyEvent(key="c"),
+            KeyEvent(key="enter"),
+        ]
+        mgr.stop()
+
+    def test_space_becomes_space_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("builtins.input", lambda prompt="": "a b")
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        events = mgr.read_line()
+        assert events == [
+            KeyEvent(key="a"),
+            KeyEvent(key="space"),
+            KeyEvent(key="b"),
+            KeyEvent(key="enter"),
+        ]
+        mgr.stop()
+
+    def test_empty_line_returns_enter_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty line still produces an enter event."""
+        monkeypatch.setattr("builtins.input", lambda prompt="": "")
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        events = mgr.read_line()
+        assert events == [KeyEvent(key="enter")]
+        mgr.stop()
+
+    def test_eof_returns_empty_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """EOFError (Ctrl+D / closed stdin) returns []."""
+
+        def raise_eof(prompt: str = "") -> str:
+            raise EOFError
+
+        monkeypatch.setattr("builtins.input", raise_eof)
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        events = mgr.read_line()
+        assert events == []
+        mgr.stop()
+
+    def test_prompt_passed_to_input(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The prompt argument is forwarded to input()."""
+        captured: list[str] = []
+
+        def mock_input(prompt: str = "") -> str:
+            captured.append(prompt)
+            return "x"
+
+        monkeypatch.setattr("builtins.input", mock_input)
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        mgr.read_line("Enter: ")
+        assert captured == ["Enter: "]
+        mgr.stop()
+
+    def test_before_start_raises(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        with pytest.raises(RuntimeError, match="read_line.*before start"):
+            mgr.read_line()
+
+    def test_raw_mode_restored_after_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Raw mode is re-entered after read_line() completes."""
+        monkeypatch.setattr("builtins.input", lambda prompt="": "x")
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        assert backend.is_raw is True
+        mgr.read_line()
+        # Raw mode should be restored after the call.
+        assert backend.is_raw is True
+        mgr.stop()
+
+    def test_raw_mode_restored_on_eof(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Raw mode is re-entered even if input() raises EOFError."""
+
+        def raise_eof(prompt: str = "") -> str:
+            raise EOFError
+
+        monkeypatch.setattr("builtins.input", raise_eof)
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        mgr.read_line()
+        assert backend.is_raw is True
+        mgr.stop()
+
+    def test_works_in_fallback_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """read_line() works when using the fallback backend."""
+        monkeypatch.setattr("builtins.input", lambda prompt="": "hi")
+        backend = _FailingBackend()
+        mgr = InputManager(backend=backend, allow_fallback=True)
+        mgr.start()
+        assert mgr.is_fallback is True
+        events = mgr.read_line()
+        assert events == [
+            KeyEvent(key="h"),
+            KeyEvent(key="i"),
+            KeyEvent(key="enter"),
+        ]
+        mgr.stop()
+
+    def test_digits_and_punctuation(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("builtins.input", lambda prompt="": "42!")
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        events = mgr.read_line()
+        assert events == [
+            KeyEvent(key="4"),
+            KeyEvent(key="2"),
+            KeyEvent(key="!"),
+            KeyEvent(key="enter"),
+        ]
+        mgr.stop()
