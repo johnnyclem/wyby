@@ -1,4 +1,4 @@
-"""Tests for wyby.project_init — git, .gitignore, pyproject.toml, pre-commit config, LICENSE, CONTRIBUTING.md, .env.example, and .editorconfig initialisation."""
+"""Tests for wyby.project_init — git, .gitignore, pyproject.toml, pre-commit config, LICENSE, CONTRIBUTING.md, .env.example, .editorconfig, and initial commit."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from wyby.project_init import (
     create_editorconfig,
     create_env_example,
     create_gitignore,
+    create_initial_commit,
     create_license_file,
     create_precommit_config,
     create_pyproject_toml,
@@ -948,6 +949,137 @@ class TestCreateEditorconfig:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# create_initial_commit
+# ---------------------------------------------------------------------------
+
+
+class TestCreateInitialCommit:
+    """Tests for create_initial_commit()."""
+
+    def test_creates_commit_with_scaffolded_files(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target)
+        sha = create_initial_commit(target, message="test commit")
+
+        assert sha  # non-empty string
+        # Verify commit exists in the log.
+        log = subprocess.run(
+            ["git", "-C", str(target), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+            env=_git_env(),
+        )
+        assert "test commit" in log.stdout
+
+    def test_returns_short_sha(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target)
+        sha = create_initial_commit(target)
+
+        # Short SHAs are typically 7-12 hex characters.
+        assert len(sha) >= 7
+        assert all(c in "0123456789abcdef" for c in sha)
+
+    def test_default_commit_message(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target)
+        create_initial_commit(target)
+
+        log = subprocess.run(
+            ["git", "-C", str(target), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "wyby project skeleton" in log.stdout
+
+    def test_custom_commit_message(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target)
+        create_initial_commit(target, message="bootstrap mygame")
+
+        log = subprocess.run(
+            ["git", "-C", str(target), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "bootstrap mygame" in log.stdout
+
+    def test_all_scaffolded_files_are_committed(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target)
+        create_initial_commit(target)
+
+        # After commit, working tree should be clean (nothing unstaged).
+        status = subprocess.run(
+            ["git", "-C", str(target), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+        )
+        assert status.stdout.strip() == ""
+
+    def test_committed_files_include_expected_set(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target)
+        create_initial_commit(target)
+
+        # List files in the commit.
+        ls_files = subprocess.run(
+            ["git", "-C", str(target), "ls-tree", "--name-only", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        files = ls_files.stdout.strip().split("\n")
+        assert ".gitignore" in files
+        assert "pyproject.toml" in files
+        assert ".pre-commit-config.yaml" in files
+        assert "LICENSE" in files
+        assert "CONTRIBUTING.md" in files
+        assert ".env.example" in files
+        assert ".editorconfig" in files
+
+    def test_raises_git_error_when_no_repo(self, tmp_path: Path) -> None:
+        # Directory exists but is not a git repo.
+        target = tmp_path / "norepo"
+        target.mkdir()
+        (target / "file.txt").write_text("hello")
+
+        with pytest.raises(GitError, match="No git repository"):
+            create_initial_commit(target)
+
+    def test_raises_git_not_found_error(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target)
+
+        with patch("wyby.project_init.shutil.which", return_value=None):
+            with pytest.raises(GitNotFoundError):
+                create_initial_commit(target)
+
+    def test_second_commit_on_existing_history(self, tmp_path: Path) -> None:
+        """create_initial_commit works even if the repo already has commits."""
+        target = tmp_path / "game"
+        init_project(target)
+        create_initial_commit(target, message="first")
+
+        # Add another file and commit again.
+        (target / "extra.txt").write_text("extra")
+        sha = create_initial_commit(target, message="second")
+
+        assert sha
+        log = subprocess.run(
+            ["git", "-C", str(target), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "first" in log.stdout
+        assert "second" in log.stdout
+
+
+# ---------------------------------------------------------------------------
+# init_project
+# ---------------------------------------------------------------------------
+
+
 class TestInitProject:
     """Tests for init_project() — the convenience wrapper."""
 
@@ -1179,6 +1311,49 @@ class TestInitProject:
         with patch("wyby.project_init.shutil.which", return_value=None):
             with pytest.raises(GitNotFoundError):
                 init_project(tmp_path / "nope")
+
+    def test_commit_false_by_default(self, tmp_path: Path) -> None:
+        """By default, init_project does not create a commit."""
+        target = tmp_path / "game"
+        init_project(target)
+
+        log = subprocess.run(
+            ["git", "-C", str(target), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        # No commits — git log should fail or produce empty output.
+        assert log.returncode != 0 or log.stdout.strip() == ""
+
+    def test_commit_true_creates_initial_commit(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target, commit=True)
+
+        log = subprocess.run(
+            ["git", "-C", str(target), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "wyby project skeleton" in log.stdout
+
+        # Working tree should be clean after the commit.
+        status = subprocess.run(
+            ["git", "-C", str(target), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+        )
+        assert status.stdout.strip() == ""
+
+    def test_commit_custom_message(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target, commit=True, commit_message="my custom init")
+
+        log = subprocess.run(
+            ["git", "-C", str(target), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "my custom init" in log.stdout
 
 
 # ---------------------------------------------------------------------------

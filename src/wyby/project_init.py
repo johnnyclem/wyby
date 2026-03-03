@@ -1,4 +1,4 @@
-"""Utilities for initializing a wyby game project with git, .gitignore, pyproject.toml, pre-commit config, LICENSE, CONTRIBUTING.md, .env.example, and .editorconfig.
+"""Utilities for initializing a wyby game project with git, .gitignore, pyproject.toml, pre-commit config, LICENSE, CONTRIBUTING.md, .env.example, .editorconfig, and initial commit.
 
 This module provides functions to scaffold a new wyby game project directory
 with a git repository, a .gitignore tailored for Python-based terminal
@@ -84,6 +84,14 @@ Caveats:
       (88) values match ruff's defaults. If you change ruff's
       ``line-length`` or ``indent-width`` in ``pyproject.toml``, update
       ``.editorconfig`` to match so that editors and the formatter agree.
+    - The initial commit function (``create_initial_commit``) uses
+      ``git add .`` which stages **all** files in the working tree. Call
+      it immediately after scaffolding — before adding other files — to
+      keep the initial commit clean. It requires ``user.name`` and
+      ``user.email`` to be configured in git (globally or locally); the
+      function does not set these automatically to avoid overriding user
+      preferences. If they are missing, ``git commit`` fails with a
+      ``GitError``.
 """
 
 from __future__ import annotations
@@ -989,6 +997,107 @@ def create_editorconfig(
     return editorconfig_path
 
 
+def create_initial_commit(
+    path: str | Path,
+    *,
+    message: str = "Initial commit — wyby project skeleton",
+) -> str:
+    """Stage all files and create the initial git commit for a scaffolded project.
+
+    This function should be called **after** :func:`init_project` (or the
+    individual scaffolding functions) has generated all project files. It
+    runs ``git add .`` followed by ``git commit`` with the given message.
+
+    Args:
+        path: Root directory of the git repository.
+        message: Commit message. Defaults to a descriptive skeleton message.
+
+    Returns:
+        The short SHA of the created commit.
+
+    Raises:
+        GitNotFoundError: If git is not available.
+        GitError: If ``git add`` or ``git commit`` fails (e.g. no files to
+            commit, missing user configuration).
+
+    Caveats:
+        - Uses ``git add .`` which stages **all** untracked and modified
+          files in the working tree. If extra files exist beyond the
+          scaffolded ones, they will be included in the commit. Run this
+          immediately after scaffolding — before adding other files — to
+          keep the initial commit clean.
+        - Requires git ``user.name`` and ``user.email`` to be configured
+          (globally or locally). The function does **not** set these
+          automatically to avoid overriding user preferences. If they are
+          not configured, ``git commit`` will fail with a ``GitError``.
+        - The commit is made on whatever branch ``git init`` created
+          (typically ``main`` or ``master``, depending on the system's
+          ``init.defaultBranch`` setting).
+        - If the repository already has commits, this function will still
+          create a new commit. It does not check for an empty history.
+        - An empty commit message is rejected — ``git commit`` will fail.
+    """
+    git_bin = _check_git_available()
+    repo_path = Path(path).resolve()
+
+    if not (repo_path / ".git").is_dir():
+        raise GitError(
+            f"No git repository at {repo_path}. "
+            "Call init_git_repo() or init_project() first."
+        )
+
+    # Stage all files.
+    try:
+        result = subprocess.run(
+            [git_bin, "-C", str(repo_path), "add", "."],
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise GitError(f"Failed to execute git add: {exc}") from exc
+
+    if result.returncode != 0:
+        raise GitError(
+            f"git add failed (exit {result.returncode}): "
+            f"{result.stderr.strip()}"
+        )
+
+    # Create the commit.
+    try:
+        result = subprocess.run(
+            [git_bin, "-C", str(repo_path), "commit", "-m", message],
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise GitError(f"Failed to execute git commit: {exc}") from exc
+
+    if result.returncode != 0:
+        raise GitError(
+            f"git commit failed (exit {result.returncode}): "
+            f"{result.stderr.strip()}"
+        )
+
+    # Extract the short SHA from the commit.
+    try:
+        sha_result = subprocess.run(
+            [git_bin, "-C", str(repo_path), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        short_sha = sha_result.stdout.strip()
+    except OSError:
+        # Non-fatal — the commit was created, we just can't read the SHA.
+        short_sha = ""
+
+    logger.info(
+        "Created initial commit %s at %s",
+        short_sha,
+        repo_path,
+    )
+    return short_sha
+
+
 def init_project(
     path: str | Path,
     project_name: str | None = None,
@@ -1001,18 +1110,22 @@ def init_project(
     overwrite_contributing: bool = False,
     overwrite_env_example: bool = False,
     overwrite_editorconfig: bool = False,
+    commit: bool = False,
+    commit_message: str = "Initial commit — wyby project skeleton",
 ) -> Path:
     """Initialise a wyby game project with git, config files, and scaffolding.
 
     Creates a git repository and writes ``.gitignore``, ``pyproject.toml``
     (with ruff linting/formatting configuration), ``.pre-commit-config.yaml``,
     ``LICENSE``, ``CONTRIBUTING.md``, ``.env.example``, and ``.editorconfig``.
+    Optionally creates an initial git commit with all scaffolded files.
 
     This is a convenience wrapper that calls :func:`init_git_repo`,
     :func:`create_gitignore`, :func:`create_pyproject_toml`,
     :func:`create_precommit_config`, :func:`create_license_file`,
-    :func:`create_contributing_md`, :func:`create_env_example`, and
-    :func:`create_editorconfig` in sequence.
+    :func:`create_contributing_md`, :func:`create_env_example`,
+    :func:`create_editorconfig`, and (when *commit* is ``True``)
+    :func:`create_initial_commit` in sequence.
 
     Args:
         path: Directory for the new project.
@@ -1026,13 +1139,18 @@ def init_project(
         overwrite_contributing: Passed through to :func:`create_contributing_md`.
         overwrite_env_example: Passed through to :func:`create_env_example`.
         overwrite_editorconfig: Passed through to :func:`create_editorconfig`.
+        commit: If ``True``, create an initial git commit after scaffolding.
+            Defaults to ``False`` to avoid surprises — the caller may want
+            to review or modify files before committing.
+        commit_message: Passed through to :func:`create_initial_commit`.
 
     Returns:
         The resolved ``Path`` of the project directory.
 
     Raises:
         GitNotFoundError: If git is not available.
-        GitError: If ``git init`` fails.
+        GitError: If ``git init`` fails, or if *commit* is ``True`` and
+            the commit fails (e.g. missing ``user.name``/``user.email``).
         FileExistsError: If ``.gitignore``, ``pyproject.toml``,
             ``.pre-commit-config.yaml``, ``LICENSE``,
             ``CONTRIBUTING.md``, ``.env.example``, or ``.editorconfig``
@@ -1059,6 +1177,9 @@ def init_project(
     create_env_example(repo_path, overwrite=overwrite_env_example)
 
     create_editorconfig(repo_path, overwrite=overwrite_editorconfig)
+
+    if commit:
+        create_initial_commit(repo_path, message=commit_message)
 
     logger.info("Initialised wyby project at %s", repo_path)
     return repo_path
