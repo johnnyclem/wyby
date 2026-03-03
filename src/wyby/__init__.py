@@ -250,6 +250,17 @@ from wyby.installation_from_source import (
     format_installation_guide,
     get_entries_by_category as get_installation_entries_by_category,
 )
+from wyby.compatibility_matrix import (
+    FEATURES as MATRIX_FEATURES,
+    SUPPORT_LEVELS,
+    TERMINALS,
+    TerminalInfo,
+    format_compatibility_matrix,
+    get_fully_supported_terminals,
+    get_support,
+    get_terminal,
+    get_terminals_by_platform,
+)
 from wyby.terminal_troubleshooting import (
     TROUBLESHOOTING_CATEGORIES,
     TROUBLESHOOTING_ENTRIES,
@@ -482,6 +493,15 @@ __all__ = [
     "format_installation_for_category",
     "format_installation_guide",
     "get_installation_entries_by_category",
+    "MATRIX_FEATURES",
+    "SUPPORT_LEVELS",
+    "TERMINALS",
+    "TerminalInfo",
+    "format_compatibility_matrix",
+    "get_fully_supported_terminals",
+    "get_support",
+    "get_terminal",
+    "get_terminals_by_platform",
     "TROUBLESHOOTING_CATEGORIES",
     "TROUBLESHOOTING_ENTRIES",
     "DiagnosticResult",
