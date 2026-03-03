@@ -160,6 +160,13 @@ from wyby.example_line_counts import (
     count_lines,
     format_line_counts,
 )
+from wyby.example_readme import (
+    ExampleReadme,
+    format_all_readmes,
+    format_readme,
+    generate_all_readmes,
+    generate_example_readme,
+)
 from wyby.example_runner import (
     ExampleCheckResult,
     check_all_examples,
@@ -317,6 +324,11 @@ __all__ = [
     "count_example_lines",
     "count_lines",
     "format_line_counts",
+    "ExampleReadme",
+    "format_all_readmes",
+    "format_readme",
+    "generate_all_readmes",
+    "generate_example_readme",
     "ExampleCheckResult",
     "check_all_examples",
     "check_example",
