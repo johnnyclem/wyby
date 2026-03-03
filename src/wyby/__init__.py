@@ -41,6 +41,7 @@ from wyby.color import (
     nearest_ansi256,
     parse_color,
 )
+from wyby.entity import Entity
 from wyby.diagnostics import (
     ColorSupport,
     FPSCounter,
@@ -112,6 +113,7 @@ __all__ = [
     "ColorSupport",
     "Engine",
     "EngineConfig",
+    "Entity",
     "Event",
     "EventQueue",
     "InputContext",
