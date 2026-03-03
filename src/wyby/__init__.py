@@ -125,6 +125,7 @@ from wyby.layout import Alignment, HBox, VBox
 from wyby.text_input import TextInput
 from wyby.cell_size_map import CellSizeMap
 from wyby.collision import AABB, aabb_overlap
+from wyby.physics import sync_positions, update_velocities
 from wyby.font_variance import (
     DEFAULT_CELL_ASPECT_RATIO,
     FONT_VARIANCE_ISSUES,
@@ -280,4 +281,6 @@ __all__ = [
     "TextInput",
     "AABB",
     "aabb_overlap",
+    "sync_positions",
+    "update_velocities",
 ]
