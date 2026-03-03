@@ -47,6 +47,7 @@ from wyby.diagnostics import (
 )
 from wyby.event import Event, EventQueue
 from wyby.grid import Cell, CellBuffer, clip_to_terminal
+from wyby.unicode import char_width, is_wide_char, string_width
 from wyby.layer import Layer, LayerStack
 from wyby.render_warnings import (
     RenderCost,
@@ -85,6 +86,7 @@ __all__ = [
     "Scene",
     "SceneStack",
     "TerminalCapabilities",
+    "char_width",
     "color_system_for_support",
     "check_flicker_risk",
     "configure_logging",
@@ -95,8 +97,10 @@ __all__ = [
     "enable_alt_screen",
     "estimate_render_cost",
     "get_terminal_size",
+    "is_wide_char",
     "log_render_cost",
     "nearest_ansi16",
     "nearest_ansi256",
     "parse_color",
+    "string_width",
 ]

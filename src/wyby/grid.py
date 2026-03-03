@@ -29,10 +29,20 @@ Caveats
   is roughly twice as tall as it is wide (~1:2 aspect ratio).  Nothing
   in this module corrects for that — callers must account for it when
   designing visuals.
-- **Unicode width is not handled here.**  CJK characters occupy 2 cells,
-  and emoji width varies by terminal.  ``put_text`` and ``draw_text``
-  place one ``Cell`` per Python character; correct multi-cell handling
-  is deferred to a future ``wcwidth`` integration.
+- **Basic Unicode support.**  Single-codepoint Unicode characters
+  (box-drawing ``─│┌┐``, block elements ``█▓▒░▀▄``, arrows, symbols)
+  work reliably across modern terminals.  Wide characters (CJK
+  ideographs, fullwidth forms) are supported via
+  :func:`~wyby.unicode.char_width` — they occupy two cells and
+  ``put_text`` / ``draw_text`` advance the cursor accordingly.
+  **Emoji rendering is terminal-dependent and unreliable** — stick to
+  ASCII and simple Unicode for game tiles.  See :mod:`wyby.unicode`
+  for full caveats on width calculation.
+- **Wide character filler cells.**  When a wide (2-column) character is
+  placed in the buffer, the next cell is filled with an internal
+  sentinel (``_WIDE_CHAR_FILLER``).  The renderer skips these fillers.
+  Overwriting either half of a wide character via ``put()`` cleans up
+  the other half automatically.
 - **No bounds errors.**  ``put()`` and ``put_text()`` silently clip
   writes that fall outside the buffer.  ``get()`` returns ``None`` for
   out-of-bounds coordinates.  This keeps rendering code simple (no need
@@ -55,6 +65,13 @@ if TYPE_CHECKING:
 
 # Default character for empty / cleared cells.
 _DEFAULT_CHAR = " "
+
+# Internal sentinel for the trailing cell of a wide (2-column) character.
+# When a wide character (e.g. CJK ideograph) is placed at column x,
+# column x+1 is filled with this sentinel so the renderer knows to skip
+# it.  This is an implementation detail — game code should never need to
+# use this value directly.
+_WIDE_CHAR_FILLER = "\x00"
 
 # Minimum and maximum buffer dimensions.  These guard against accidental
 # zero-size buffers and absurdly large allocations.
@@ -164,9 +181,24 @@ class CellBuffer:
         Out-of-bounds coordinates are silently ignored (no exception).
         This allows rendering code to draw without pre-clipping to the
         buffer dimensions.
+
+        When overwriting part of a wide character (either the character
+        itself or its filler cell), the other half is automatically
+        replaced with a default blank cell to prevent rendering
+        artifacts.
         """
         if 0 <= x < self._width and 0 <= y < self._height:
-            self._cells[y][x] = cell
+            row = self._cells[y]
+            # If we're overwriting the filler of a wide character,
+            # blank the wide char in the preceding cell.
+            if row[x].char == _WIDE_CHAR_FILLER and x > 0:
+                row[x - 1] = _default_cell()
+            # If we're overwriting a wide character that has a filler
+            # to its right, blank the filler.
+            if (x + 1 < self._width
+                    and row[x + 1].char == _WIDE_CHAR_FILLER):
+                row[x + 1] = _default_cell()
+            row[x] = cell
 
     def get(self, x: int, y: int) -> Cell | None:
         """Return the :class:`Cell` at (*x*, *y*), or ``None`` if out of bounds."""
@@ -187,17 +219,48 @@ class CellBuffer:
     ) -> None:
         """Write a string of characters starting at (*x*, *y*).
 
-        Each character in *text* occupies one cell.  Characters that
-        fall outside the buffer (either because *x* is negative, or
-        because the string extends past the right edge) are silently
-        clipped.
+        Characters are placed left-to-right, advancing by each
+        character's display width.  Narrow characters (ASCII, Latin,
+        box-drawing, etc.) advance by 1 column.  Wide characters (CJK
+        ideographs, fullwidth forms) advance by 2 columns and place an
+        internal filler cell in the trailing column.
 
-        Caveat: this treats every Python character as one cell wide.
-        CJK or emoji characters that occupy two terminal columns are
-        **not** handled — the caller must account for multi-cell glyphs.
+        Characters that fall outside the buffer (either because *x* is
+        negative, or because the string extends past the right edge)
+        are silently clipped.  A wide character that would be split at
+        the right edge (only one column remaining) is skipped entirely.
+
+        Caveats:
+            - Zero-width characters (combining marks, control
+              characters) are silently skipped.  They cannot be
+              meaningfully placed in a cell grid.
+            - Emoji width is terminal-dependent.  Single-codepoint emoji
+              are treated as width 2 per UAX #11, but actual rendering
+              varies.  See :mod:`wyby.unicode` for details.
         """
-        for i, char in enumerate(text):
-            self.put(x + i, y, Cell(char=char, fg=fg, bg=bg, bold=bold, dim=dim))
+        from wyby.unicode import char_width as _char_width
+
+        col = x
+        for char in text:
+            w = _char_width(char)
+            if w == 0:
+                # Zero-width characters (combining marks, control chars)
+                # cannot occupy a cell.  Skip them.
+                continue
+            if w == 2:
+                # Wide character needs 2 columns.  If only one column
+                # remains before the right edge, skip the character
+                # (we can't render half a wide char).
+                if 0 <= col < self._width and col + 1 >= self._width:
+                    col += w
+                    continue
+                self.put(col, y, Cell(char=char, fg=fg, bg=bg, bold=bold, dim=dim))
+                self.put(col + 1, y, Cell(
+                    char=_WIDE_CHAR_FILLER, fg=None, bg=bg,
+                ))
+            else:
+                self.put(col, y, Cell(char=char, fg=fg, bg=bg, bold=bold, dim=dim))
+            col += w
 
     def draw_text(
         self,
@@ -241,9 +304,10 @@ class CellBuffer:
               with Rich rather than through CellBuffer.
             - Same clipping behaviour as :meth:`put_text`: characters
               outside the buffer bounds are silently ignored.
-            - Same Unicode caveat as :meth:`put_text`: each Python
-              character is treated as one cell wide.  CJK and emoji
-              that occupy two terminal columns are not handled correctly.
+            - Same Unicode width handling as :meth:`put_text`: wide
+              characters (CJK, fullwidth) advance by 2 columns.  See
+              :meth:`put_text` for details on clipping and zero-width
+              character handling.
         """
         # Rich Color.__str__ returns the repr, not the color name.
         # Use Color.name to get the original string ("red", "#ff0000").
@@ -372,6 +436,10 @@ class CellBuffer:
         for y in range(self._height):
             line = Text(no_wrap=True, overflow="crop")
             for cell in self._cells[y]:
+                # Skip filler cells — the wide character in the
+                # preceding cell already occupies this column.
+                if cell.char == _WIDE_CHAR_FILLER:
+                    continue
                 # Skip Style allocation for completely default cells.
                 if cell.fg or cell.bg or cell.bold or cell.dim:
                     style: _Style | None = _Style(
