@@ -31,8 +31,9 @@ Quit handling:
     ``QuitSignal`` from their own input-checking logic.
 
 Caveats:
-    - **Early implementation.** Scene management, input, and rendering
-      are not yet connected. See SCOPE.md for the intended design.
+    - **Early implementation.** The scene stack and event queue are
+      wired into the main loop, but the input layer (keyboard polling)
+      and renderer (Rich ``Live`` display) are not yet connected.
     - The game loop targets ~30 ticks per second by default, but actual
       frame rate depends on terminal emulator, grid size, and style
       complexity. Do not assume 60 FPS — that is not a meaningful target
@@ -67,6 +68,8 @@ import logging
 import time
 
 from wyby._logging import configure_logging
+from wyby.event import EventQueue
+from wyby.scene import SceneStack
 
 _logger = logging.getLogger(__name__)
 
@@ -156,9 +159,10 @@ class QuitSignal(Exception):
 class Engine:
     """Core engine that manages the game loop and top-level configuration.
 
-    The ``Engine`` holds the game's title, logical grid dimensions, and
-    tick rate.  Future versions will own the scene stack, input system,
-    and renderer.
+    The ``Engine`` holds the game's title, logical grid dimensions, tick
+    rate, event queue, and scene stack.  Each tick follows a three-phase
+    structure: drain events (input), update the active scene, render the
+    active scene.
 
     Args:
         title: Window/application title. Used for diagnostic output and
@@ -211,6 +215,8 @@ class Engine:
         "_elapsed",
         "_last_tick_time",
         "_accumulator",
+        "_event_queue",
+        "_scene_stack",
     )
 
     def __init__(
@@ -278,6 +284,8 @@ class Engine:
         self._elapsed: float = 0.0
         self._last_tick_time: float = 0.0
         self._accumulator: float = 0.0
+        self._event_queue = EventQueue()
+        self._scene_stack = SceneStack()
 
         _logger.debug(
             "Engine initialized: title=%r, width=%d, height=%d, tps=%d",
@@ -376,6 +384,25 @@ class Engine:
         """
         return self._elapsed
 
+    @property
+    def events(self) -> EventQueue:
+        """The engine's event queue.
+
+        Subsystems and game code post :class:`Event` instances here.
+        The main loop drains the queue once per tick during the input
+        phase.
+        """
+        return self._event_queue
+
+    @property
+    def scenes(self) -> SceneStack:
+        """The engine's scene stack.
+
+        Push, pop, or replace scenes to control which scene is active.
+        Only the top scene receives updates and renders each tick.
+        """
+        return self._scene_stack
+
     def run(self, *, loop: bool = True) -> None:
         """Start the engine's main loop.
 
@@ -396,9 +423,12 @@ class Engine:
                 ``False``, execute a single tick and return.
 
         Caveats:
-            - **No subsystems connected yet.** Each tick is currently a
-              no-op placeholder. Input polling, scene updates, and
-              rendering will be wired in by later tasks (see SCOPE.md).
+            - Each tick runs three phases: drain the event queue
+              (input), call the active scene's ``update(dt)`` (update),
+              and call the active scene's ``render()`` (render).  The
+              input layer and Rich renderer are not yet connected —
+              events must be posted manually and ``render()`` output
+              is not yet displayed.
             - **Sleep granularity.** ``time.sleep()`` precision is
               OS-dependent (typically 1–10 ms).  The accumulator
               self-corrects for overshoot on the next frame.
@@ -534,12 +564,65 @@ class Engine:
         :meth:`_run_loop` handles the mapping between wall-clock time
         and game time.
 
-        Currently a no-op beyond timing bookkeeping. Will eventually:
-        drain input → update active scene → render frame.
+        The tick follows a strict three-phase structure:
+
+        1. **Input** — drain all pending events from the event queue.
+           Events are collected into a list but not automatically
+           dispatched to the scene.  The input layer (not yet
+           implemented) will post ``KeyEvent`` objects here; for now,
+           game code can post custom events via ``engine.events.post()``.
+        2. **Update** — call the active (top) scene's ``update(dt)``
+           method with the fixed timestep.  If the scene stack is empty,
+           this phase is skipped.
+        3. **Render** — call the active scene's ``render()`` method.
+           If the scene stack is empty, this phase is skipped.
+
+        Caveats:
+            - The input phase drains events but does not dispatch them
+              to the scene automatically.  Event routing will be added
+              when the input subsystem is implemented.  Until then,
+              scenes that need input must poll their own state or read
+              events from the engine's queue before ``drain()`` is
+              called.
+            - Update and render are called on the same scene reference
+              obtained once per tick.  If ``update()`` mutates the scene
+              stack (e.g., pushes a pause menu), the *original* scene
+              still renders this tick.  The new top scene will render
+              starting next tick.
+            - If the scene stack is empty, the tick is effectively a
+              no-op (timing bookkeeping still advances).  This is not
+              an error — it allows the engine to run with an empty stack
+              while waiting for a scene to be pushed.
+            - ``render()`` must not modify game state.  It should be a
+              pure read of the scene's current state.  The renderer is
+              not yet wired to Rich ``Live``; ``render()`` is called to
+              establish the contract and allow scenes to prepare output.
         """
+        # -- Timing bookkeeping (always runs) --
         self._dt = self._target_dt
         self._elapsed += self._dt
         self._tick_count += 1
+
+        # -- Phase 1: Input --
+        # Drain all events posted since the last tick.  The input layer
+        # (once implemented) will post KeyEvents here each frame.  For
+        # now the queue is typically empty unless game code posts custom
+        # events.
+        self._event_queue.drain()
+
+        # -- Phase 2: Update --
+        # Only the top scene receives updates.  Scenes below it on the
+        # stack are paused and do not advance.
+        scene = self._scene_stack.peek()
+        if scene is not None:
+            scene.update(self._target_dt)
+
+        # -- Phase 3: Render --
+        # Render the same scene that was updated.  If update() pushed or
+        # popped scenes, the new top takes effect next tick — this keeps
+        # the three phases consistent within a single tick.
+        if scene is not None:
+            scene.render()
 
     def __repr__(self) -> str:
         parts = (
