@@ -116,6 +116,7 @@ from wyby.resize import ResizeHandler, get_terminal_size
 from wyby.scene import Scene, SceneStack
 from wyby.signal_handlers import SignalHandler
 from wyby.transition import Cut, FadeTransition, SlideTransition, Transition
+from wyby.button import Button
 from wyby.widget import Widget
 from wyby.cell_size_map import CellSizeMap
 from wyby.font_variance import (
@@ -238,6 +239,7 @@ __all__ = [
     "SlideTransition",
     "Transition",
     "Velocity",
+    "Button",
     "Widget",
     "flip_h",
     "flip_v",
