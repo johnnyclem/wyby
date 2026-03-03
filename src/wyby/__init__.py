@@ -232,6 +232,14 @@ from wyby.rich_live_tradeoffs import (
     format_tradeoffs_for_category,
     get_tradeoffs_by_category,
 )
+from wyby.curses_migration import (
+    MIGRATION_CATEGORIES,
+    MIGRATION_ENTRIES,
+    MigrationEntry,
+    format_migration_for_category,
+    format_migration_guide,
+    get_entries_by_category as get_migration_entries_by_category,
+)
 
 # Attach a NullHandler so that wyby's internal log messages are silently
 # discarded unless the application (game) configures logging. This follows
@@ -439,4 +447,10 @@ __all__ = [
     "format_rich_live_tradeoffs_doc",
     "format_tradeoffs_for_category",
     "get_tradeoffs_by_category",
+    "MIGRATION_CATEGORIES",
+    "MIGRATION_ENTRIES",
+    "MigrationEntry",
+    "format_migration_for_category",
+    "format_migration_guide",
+    "get_migration_entries_by_category",
 ]
