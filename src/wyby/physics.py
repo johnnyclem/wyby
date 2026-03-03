@@ -20,6 +20,13 @@ Usage::
     update_velocities(entities, dt)   # apply velocity → position
     sync_positions(entities)          # snap Position → Entity.x/y
 
+    # With gravity and friction:
+    update_velocities(
+        entities, dt,
+        gravity=(0.0, 98.0),  # downward gravity (cells/sec²)
+        friction=0.8,         # retain 80% of velocity per second
+    )
+
 Caveats:
     - **Not automatic.**  These functions are never called by the engine.
       You must call them explicitly in your :meth:`~wyby.scene.Scene.update`
@@ -37,6 +44,11 @@ Caveats:
       of entities) this is fine.
     - **Destroyed entities are skipped.**  If ``entity.alive`` is
       ``False``, the entity is ignored.
+    - **Not a real physics engine.**  Gravity and friction are simple
+      per-tick approximations, not continuous integration.  For small
+      timesteps (1/30 s or smaller) the results are good enough for
+      terminal games.  For large or variable timesteps, consider a
+      proper integrator.
 """
 
 from __future__ import annotations
@@ -49,20 +61,37 @@ from wyby.position import Position
 from wyby.velocity import Velocity
 
 
-def update_velocities(entities: Iterable[Entity], dt: float) -> int:
+def update_velocities(
+    entities: Iterable[Entity],
+    dt: float,
+    *,
+    gravity: tuple[float, float] | None = None,
+    friction: float | None = None,
+) -> int:
     """Apply velocity to position for every entity that has both components.
 
     For each entity in *entities*, if it has both a
     :class:`~wyby.velocity.Velocity` and a
-    :class:`~wyby.position.Position` component, calls
-    ``velocity.update(dt)`` to add ``(vx * dt, vy * dt)`` to the
-    position.
+    :class:`~wyby.position.Position` component:
+
+    1. **Gravity** (if provided): adds ``(gx * dt, gy * dt)`` to velocity.
+    2. **Friction** (if provided): multiplies velocity by ``friction ** dt``.
+    3. **Position update**: adds ``(vx * dt, vy * dt)`` to position.
 
     Args:
         entities: Iterable of entities to process.  May contain entities
             without Velocity or Position — those are silently skipped.
         dt: Time elapsed since the last tick, in seconds.  Should be a
             fixed timestep (e.g. ``1/30``) for deterministic results.
+        gravity: Optional ``(gx, gy)`` acceleration in cells/sec².
+            Applied to velocity before the position update.  Positive
+            ``gy`` accelerates downward (terminal y-axis points down).
+            Default ``None`` (no gravity).
+        friction: Optional velocity damping factor, in the range
+            ``[0, 1]``.  Represents the fraction of velocity retained
+            after one second.  Applied as ``vel *= friction ** dt`` for
+            frame-rate independence.  ``1.0`` = no friction,
+            ``0.0`` = instant stop.  Default ``None`` (no friction).
 
     Returns:
         The number of entities that were actually updated (i.e., had
@@ -70,6 +99,10 @@ def update_velocities(entities: Iterable[Entity], dt: float) -> int:
 
     Raises:
         TypeError: If *dt* is not a number (int or float), or is a bool.
+            Also raised if *gravity* is not a 2-tuple of numbers, or if
+            *friction* is not a number.
+        ValueError: If *dt* is NaN or infinite, or if *friction* is
+            outside the range ``[0, 1]``.
 
     Caveats:
         - **dt validation.**  Passing a negative *dt* is allowed (moves
@@ -82,17 +115,83 @@ def update_velocities(entities: Iterable[Entity], dt: float) -> int:
         - **Iteration order.**  Entities are processed in iteration
           order.  If the iterable is a list, entities are updated in
           list order.  No sorting or prioritization is applied.
+        - **Mutates velocity in place.**  When *gravity* or *friction*
+          are supplied, the Velocity component's ``vx`` and ``vy`` are
+          modified directly.  This is intentional — velocity accumulates
+          across ticks, so an entity under constant gravity accelerates.
         - **Mutates position in place.**  The Position component's
           ``x`` and ``y`` are modified directly.  If you need the
           previous position (e.g., for collision response), save it
           before calling this function.
+        - **Euler integration.**  Gravity uses simple forward-Euler
+          integration (``v += a * dt``, then ``p += v * dt``).  This is
+          standard for fixed-timestep game loops but accumulates error
+          over very large dt values.  Keep dt small (≤ 1/15 s).
+        - **Friction is exponential damping.**  ``friction ** dt``
+          ensures frame-rate independence: halving the timestep and
+          doubling the ticks produces the same result (within float
+          precision).  This is *not* Coulomb friction — it's velocity-
+          proportional drag, similar to air resistance.
+        - **Gravity before friction.**  Gravity is applied first, then
+          friction damps the resulting velocity.  This means an entity
+          under constant gravity with friction will reach a terminal
+          velocity where ``gravity * dt == (1 - friction ** dt) * vel``.
+        - **Friction with negative dt.**  ``friction ** (-dt)``
+          *amplifies* velocity, which is almost certainly not what you
+          want.  Avoid combining friction with negative dt.
     """
+    # -- Validate dt -------------------------------------------------------
     if isinstance(dt, bool) or not isinstance(dt, (int, float)):
         raise TypeError(
             f"dt must be a number (int or float), got {type(dt).__name__}"
         )
     if math.isnan(dt) or math.isinf(dt):
         raise ValueError(f"dt must be finite, got {dt}")
+
+    # -- Validate gravity --------------------------------------------------
+    if gravity is not None:
+        if not isinstance(gravity, tuple) or len(gravity) != 2:
+            raise TypeError(
+                "gravity must be a (gx, gy) tuple of two numbers"
+            )
+        gx, gy = gravity
+        if isinstance(gx, bool) or not isinstance(gx, (int, float)):
+            raise TypeError(
+                f"gravity[0] must be a number (int or float), "
+                f"got {type(gx).__name__}"
+            )
+        if isinstance(gy, bool) or not isinstance(gy, (int, float)):
+            raise TypeError(
+                f"gravity[1] must be a number (int or float), "
+                f"got {type(gy).__name__}"
+            )
+        if math.isnan(gx) or math.isinf(gx):
+            raise ValueError(f"gravity[0] must be finite, got {gx}")
+        if math.isnan(gy) or math.isinf(gy):
+            raise ValueError(f"gravity[1] must be finite, got {gy}")
+
+    # -- Validate friction -------------------------------------------------
+    friction_factor: float | None = None
+    if friction is not None:
+        if isinstance(friction, bool) or not isinstance(
+            friction, (int, float)
+        ):
+            raise TypeError(
+                f"friction must be a number (int or float), "
+                f"got {type(friction).__name__}"
+            )
+        if math.isnan(friction) or math.isinf(friction):
+            raise ValueError(f"friction must be finite, got {friction}")
+        if friction < 0.0 or friction > 1.0:
+            raise ValueError(
+                f"friction must be between 0 and 1 (inclusive), "
+                f"got {friction}"
+            )
+        # Pre-compute the per-tick damping factor for frame-rate independence.
+        # friction=0.8 at dt=1/30 → factor ≈ 0.9926 (small damping per tick).
+        friction_factor = friction ** dt
+
+    # -- Apply to entities -------------------------------------------------
     count = 0
     for entity in entities:
         if not entity.alive:
@@ -103,6 +202,18 @@ def update_velocities(entities: Iterable[Entity], dt: float) -> int:
         pos = entity.get_component(Position)
         if pos is None:
             continue
+
+        # 1. Gravity: accelerate velocity (v += a * dt).
+        if gravity is not None:
+            vel._vx += gravity[0] * dt
+            vel._vy += gravity[1] * dt
+
+        # 2. Friction: damp velocity (v *= friction^dt).
+        if friction_factor is not None:
+            vel._vx *= friction_factor
+            vel._vy *= friction_factor
+
+        # 3. Position update: move (p += v * dt).
         vel.update(dt)
         count += 1
     return count

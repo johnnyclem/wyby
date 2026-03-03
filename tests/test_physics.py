@@ -264,6 +264,286 @@ class TestSyncPositions:
 
 
 # ---------------------------------------------------------------------------
+# update_velocities — gravity
+# ---------------------------------------------------------------------------
+
+
+class TestGravity:
+    """Gravity optional parameter on update_velocities."""
+
+    def test_gravity_accelerates_velocity(self) -> None:
+        """Gravity adds (gx*dt, gy*dt) to velocity each tick."""
+        e = _make_entity(0.0, 0.0, 0.0, 0.0, entity_id=3000)
+        update_velocities([e], 1.0, gravity=(0.0, 10.0))
+
+        vel = e.get_component(Velocity)
+        # After 1 second: vy = 0 + 10*1 = 10
+        assert vel.vy == pytest.approx(10.0)
+        assert vel.vx == pytest.approx(0.0)
+
+    def test_gravity_accumulates_over_ticks(self) -> None:
+        """Velocity grows each tick under constant gravity."""
+        e = _make_entity(0.0, 0.0, 0.0, 0.0, entity_id=3001)
+        for _ in range(10):
+            update_velocities([e], 0.1, gravity=(0.0, 10.0))
+
+        vel = e.get_component(Velocity)
+        # After 10 ticks of 0.1s: vy = 10 * 10 * 0.1 = 10.0
+        assert vel.vy == pytest.approx(10.0)
+
+    def test_gravity_affects_position(self) -> None:
+        """Position changes by the updated velocity, not the old velocity."""
+        e = _make_entity(0.0, 0.0, 0.0, 0.0, entity_id=3002)
+        update_velocities([e], 1.0, gravity=(0.0, 10.0))
+
+        pos = e.get_component(Position)
+        # v += 10*1=10, then p += 10*1=10
+        assert pos.y == pytest.approx(10.0)
+
+    def test_horizontal_gravity(self) -> None:
+        e = _make_entity(0.0, 0.0, 0.0, 0.0, entity_id=3003)
+        update_velocities([e], 0.5, gravity=(20.0, 0.0))
+
+        vel = e.get_component(Velocity)
+        assert vel.vx == pytest.approx(10.0)  # 20 * 0.5
+        pos = e.get_component(Position)
+        assert pos.x == pytest.approx(5.0)  # 10 * 0.5
+
+    def test_gravity_none_is_default(self) -> None:
+        """No gravity when gravity=None (the default)."""
+        e = _make_entity(0.0, 0.0, 5.0, 0.0, entity_id=3004)
+        update_velocities([e], 1.0)
+
+        vel = e.get_component(Velocity)
+        assert vel.vx == pytest.approx(5.0)  # unchanged
+        assert vel.vy == pytest.approx(0.0)  # unchanged
+
+    def test_gravity_with_existing_velocity(self) -> None:
+        """Gravity adds to existing velocity, doesn't replace it."""
+        e = _make_entity(0.0, 0.0, 10.0, 5.0, entity_id=3005)
+        update_velocities([e], 1.0, gravity=(0.0, 10.0))
+
+        vel = e.get_component(Velocity)
+        assert vel.vx == pytest.approx(10.0)  # no horizontal gravity
+        assert vel.vy == pytest.approx(15.0)  # 5 + 10*1
+
+    def test_negative_gravity(self) -> None:
+        """Negative gravity (e.g. buoyancy) decelerates downward velocity."""
+        e = _make_entity(0.0, 0.0, 0.0, 10.0, entity_id=3006)
+        update_velocities([e], 1.0, gravity=(0.0, -5.0))
+
+        vel = e.get_component(Velocity)
+        assert vel.vy == pytest.approx(5.0)  # 10 + (-5)*1
+
+    def test_gravity_skips_destroyed(self) -> None:
+        e = _make_entity(0.0, 0.0, 0.0, 0.0, entity_id=3007)
+        e.destroy()
+        count = update_velocities([e], 1.0, gravity=(0.0, 10.0))
+        assert count == 0
+
+    def test_gravity_rejects_non_tuple(self) -> None:
+        with pytest.raises(TypeError, match="gravity must be a .* tuple"):
+            update_velocities([], 1.0, gravity=[0.0, 10.0])
+
+    def test_gravity_rejects_wrong_length(self) -> None:
+        with pytest.raises(TypeError, match="gravity must be a .* tuple"):
+            update_velocities([], 1.0, gravity=(1.0,))
+
+    def test_gravity_rejects_bool_component(self) -> None:
+        with pytest.raises(TypeError, match="gravity.*must be a number"):
+            update_velocities([], 1.0, gravity=(True, 0.0))
+
+    def test_gravity_rejects_string_component(self) -> None:
+        with pytest.raises(TypeError, match="gravity.*must be a number"):
+            update_velocities([], 1.0, gravity=(0.0, "10"))
+
+    def test_gravity_rejects_nan(self) -> None:
+        with pytest.raises(ValueError, match="gravity.*must be finite"):
+            update_velocities([], 1.0, gravity=(math.nan, 0.0))
+
+    def test_gravity_rejects_inf(self) -> None:
+        with pytest.raises(ValueError, match="gravity.*must be finite"):
+            update_velocities([], 1.0, gravity=(0.0, math.inf))
+
+    def test_gravity_zero_dt(self) -> None:
+        """Gravity with dt=0 does nothing (g*0 = 0)."""
+        e = _make_entity(0.0, 0.0, 0.0, 0.0, entity_id=3008)
+        update_velocities([e], 0.0, gravity=(0.0, 100.0))
+
+        vel = e.get_component(Velocity)
+        assert vel.vy == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# update_velocities — friction
+# ---------------------------------------------------------------------------
+
+
+class TestFriction:
+    """Friction optional parameter on update_velocities."""
+
+    def test_friction_damps_velocity(self) -> None:
+        """Friction reduces velocity each tick."""
+        e = _make_entity(0.0, 0.0, 100.0, 0.0, entity_id=4000)
+        update_velocities([e], 1.0, friction=0.5)
+
+        vel = e.get_component(Velocity)
+        # After 1 second with friction=0.5: vx = 100 * 0.5^1 = 50
+        assert vel.vx == pytest.approx(50.0)
+
+    def test_friction_frame_rate_independent(self) -> None:
+        """Two half-second ticks produce the same result as one full second."""
+        e1 = _make_entity(0.0, 0.0, 100.0, 0.0, entity_id=4001)
+        update_velocities([e1], 1.0, friction=0.5)
+
+        e2 = _make_entity(0.0, 0.0, 100.0, 0.0, entity_id=4002)
+        update_velocities([e2], 0.5, friction=0.5)
+        update_velocities([e2], 0.5, friction=0.5)
+
+        vel1 = e1.get_component(Velocity)
+        vel2 = e2.get_component(Velocity)
+        assert vel1.vx == pytest.approx(vel2.vx, rel=1e-9)
+
+    def test_friction_one_no_damping(self) -> None:
+        """friction=1.0 means no friction (retain 100% of velocity)."""
+        e = _make_entity(0.0, 0.0, 42.0, 0.0, entity_id=4003)
+        update_velocities([e], 1.0, friction=1.0)
+
+        vel = e.get_component(Velocity)
+        assert vel.vx == pytest.approx(42.0)
+
+    def test_friction_zero_instant_stop(self) -> None:
+        """friction=0.0 stops velocity instantly (for dt > 0)."""
+        e = _make_entity(0.0, 0.0, 100.0, 50.0, entity_id=4004)
+        update_velocities([e], 0.1, friction=0.0)
+
+        vel = e.get_component(Velocity)
+        assert vel.vx == pytest.approx(0.0)
+        assert vel.vy == pytest.approx(0.0)
+
+    def test_friction_applies_to_both_axes(self) -> None:
+        e = _make_entity(0.0, 0.0, 80.0, -60.0, entity_id=4005)
+        update_velocities([e], 1.0, friction=0.5)
+
+        vel = e.get_component(Velocity)
+        assert vel.vx == pytest.approx(40.0)
+        assert vel.vy == pytest.approx(-30.0)
+
+    def test_friction_none_is_default(self) -> None:
+        """No friction when friction=None (the default)."""
+        e = _make_entity(0.0, 0.0, 10.0, 0.0, entity_id=4006)
+        update_velocities([e], 1.0)
+
+        vel = e.get_component(Velocity)
+        assert vel.vx == pytest.approx(10.0)  # unchanged
+
+    def test_friction_rejects_negative(self) -> None:
+        with pytest.raises(ValueError, match="friction must be between 0 and 1"):
+            update_velocities([], 1.0, friction=-0.1)
+
+    def test_friction_rejects_greater_than_one(self) -> None:
+        with pytest.raises(ValueError, match="friction must be between 0 and 1"):
+            update_velocities([], 1.0, friction=1.1)
+
+    def test_friction_rejects_bool(self) -> None:
+        with pytest.raises(TypeError, match="friction must be a number"):
+            update_velocities([], 1.0, friction=True)
+
+    def test_friction_rejects_string(self) -> None:
+        with pytest.raises(TypeError, match="friction must be a number"):
+            update_velocities([], 1.0, friction="0.5")
+
+    def test_friction_rejects_nan(self) -> None:
+        with pytest.raises(ValueError, match="friction must be finite"):
+            update_velocities([], 1.0, friction=math.nan)
+
+    def test_friction_rejects_inf(self) -> None:
+        with pytest.raises(ValueError, match="friction must be finite"):
+            update_velocities([], 1.0, friction=math.inf)
+
+    def test_friction_with_zero_dt(self) -> None:
+        """friction^0 = 1, so no damping when dt=0."""
+        e = _make_entity(0.0, 0.0, 100.0, 0.0, entity_id=4007)
+        update_velocities([e], 0.0, friction=0.5)
+
+        vel = e.get_component(Velocity)
+        assert vel.vx == pytest.approx(100.0)
+
+    def test_friction_skips_destroyed(self) -> None:
+        e = _make_entity(0.0, 0.0, 100.0, 0.0, entity_id=4008)
+        e.destroy()
+        count = update_velocities([e], 1.0, friction=0.5)
+        assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# update_velocities — gravity + friction combined
+# ---------------------------------------------------------------------------
+
+
+class TestGravityAndFriction:
+    """Gravity and friction used together."""
+
+    def test_gravity_then_friction_order(self) -> None:
+        """Gravity is applied before friction in the same tick."""
+        e = _make_entity(0.0, 0.0, 0.0, 0.0, entity_id=5000)
+        update_velocities([e], 1.0, gravity=(0.0, 100.0), friction=0.5)
+
+        vel = e.get_component(Velocity)
+        # Step 1: vy += 100 * 1 = 100
+        # Step 2: vy *= 0.5^1 = 50
+        # Step 3: position += 50 * 1 = 50
+        assert vel.vy == pytest.approx(50.0)
+        pos = e.get_component(Position)
+        assert pos.y == pytest.approx(50.0)
+
+    def test_terminal_velocity(self) -> None:
+        """Under constant gravity + friction, velocity approaches a limit."""
+        e = _make_entity(0.0, 0.0, 0.0, 0.0, entity_id=5001)
+
+        # Run many ticks to approach terminal velocity.
+        for _ in range(1000):
+            update_velocities([e], 1 / 30, gravity=(0.0, 100.0), friction=0.5)
+
+        vel = e.get_component(Velocity)
+        # Velocity should stabilize (not grow unbounded).
+        vy_a = vel.vy
+        for _ in range(100):
+            update_velocities([e], 1 / 30, gravity=(0.0, 100.0), friction=0.5)
+        vy_b = vel.vy
+
+        # After many ticks, velocity should barely change (terminal velocity).
+        assert abs(vy_b - vy_a) < 0.01
+
+    def test_gravity_and_friction_with_multiple_entities(self) -> None:
+        a = _make_entity(0.0, 0.0, 10.0, 0.0, entity_id=5002)
+        b = _make_entity(0.0, 0.0, 0.0, 20.0, entity_id=5003)
+        count = update_velocities(
+            [a, b], 1.0, gravity=(0.0, 5.0), friction=0.9,
+        )
+        assert count == 2
+
+        vel_a = a.get_component(Velocity)
+        vel_b = b.get_component(Velocity)
+        # a: vx=10*0.9=9, vy=5*0.9=4.5
+        assert vel_a.vx == pytest.approx(9.0)
+        assert vel_a.vy == pytest.approx(4.5)
+        # b: vx=0, vy=(20+5)*0.9=22.5
+        assert vel_b.vy == pytest.approx(22.5)
+
+    def test_full_pipeline_with_gravity_friction(self) -> None:
+        """update_velocities (gravity+friction) then sync_positions."""
+        e = _make_entity(0.0, 0.0, 0.0, 0.0, entity_id=5004)
+        entities = [e]
+
+        update_velocities(entities, 1.0, gravity=(0.0, 10.0), friction=1.0)
+        sync_positions(entities)
+
+        # friction=1 → no damping, so vy=10 after gravity, pos.y=10
+        assert e.y == 10
+
+
+# ---------------------------------------------------------------------------
 # Import from package root
 # ---------------------------------------------------------------------------
 
