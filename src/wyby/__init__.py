@@ -100,11 +100,15 @@ from wyby.mouse_warnings import (
     log_mouse_warnings,
 )
 from wyby.render_warnings import (
+    ImageConversionCost,
     RenderCost,
     check_emoji_warning,
     check_flicker_risk,
+    check_image_conversion_warning,
+    estimate_image_conversion_cost,
     estimate_render_cost,
     log_emoji_warning,
+    log_image_conversion_cost,
     log_render_cost,
 )
 from wyby.renderer import LiveDisplay, Renderer, create_console
@@ -184,6 +188,7 @@ __all__ = [
     "grapheme_string_width",
     "grapheme_width",
     "check_flicker_risk",
+    "check_image_conversion_warning",
     "check_mouse_drag_warning",
     "check_mouse_hover_warning",
     "configure_logging",
@@ -193,6 +198,7 @@ __all__ = [
     "disable_alt_screen",
     "downgrade_color",
     "enable_alt_screen",
+    "estimate_image_conversion_cost",
     "estimate_render_cost",
     "get_terminal_size",
     "hide_cursor",
@@ -200,7 +206,9 @@ __all__ = [
     "is_single_grapheme",
     "is_wide_char",
     "iter_grapheme_clusters",
+    "ImageConversionCost",
     "log_emoji_warning",
+    "log_image_conversion_cost",
     "log_mouse_warnings",
     "log_render_cost",
     "nearest_ansi16",

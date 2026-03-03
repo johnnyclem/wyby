@@ -486,6 +486,27 @@ def from_image(
         ValueError: If the image has zero width or height.
 
     Caveats:
+        - **Conversion is expensive — call at load time, not per-frame.**
+          This function iterates every pixel, allocates an Entity + Sprite +
+          Style per opaque pixel, and converts the image to RGBA internally.
+          For a 40×20 image, that is 800 object allocations plus Pillow
+          pixel-access overhead.  At 100×50 (5 000 pixels) the cost is
+          significant.  **Always** convert once at load time and cache the
+          returned entity list.  Never call ``from_image`` inside a game
+          loop or per-frame callback.  Use
+          :func:`~wyby.render_warnings.estimate_image_conversion_cost` to
+          check cost before converting, and
+          :func:`~wyby.render_warnings.log_image_conversion_cost` to log
+          warnings for large images.
+        - **Pre-processing adds further cost.**  If you use
+          :func:`~wyby.dithering.prepare_for_terminal` or
+          :func:`~wyby.dithering.quantize_for_terminal` before calling
+          ``from_image``, those functions perform resizing, colour
+          quantization, and optional Floyd-Steinberg dithering — each an
+          *O(width × height)* operation.  The full pipeline
+          (resize → aspect-correct → quantize → from_image) may take
+          hundreds of milliseconds for large images.  Do it once at
+          startup or behind a loading screen.
         - **Quantization.**  A typical image may contain thousands of
           unique colours.  Terminals support at most 16 million (truecolor),
           256, or 16 colours depending on capability.  More importantly,
@@ -602,6 +623,16 @@ def from_image(
         raise ValueError(
             f"image must have non-zero dimensions, got {width}x{height}"
         )
+
+    # Log a warning if the image is large enough to cause a noticeable
+    # conversion pause.  This uses the image conversion cost estimator
+    # from render_warnings — the same pattern as log_render_cost() for
+    # grid dimensions.
+    from wyby.render_warnings import log_image_conversion_cost as _log_conv_cost
+    _log_conv_cost(
+        width, height,
+        has_alpha=skip_alpha and image.mode in ("RGBA", "LA", "PA"),
+    )
 
     # Convert to RGBA for uniform pixel access.
     rgba = image.convert("RGBA")

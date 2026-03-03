@@ -399,3 +399,257 @@ def log_emoji_warning(text: str) -> bool:
         return True
     _logger.debug("No emoji detected in text — rendering should be consistent.")
     return False
+
+
+# -- Image conversion cost --------------------------------------------------
+
+# Image-to-entity conversion creates one Entity (with a Sprite component and
+# a Rich Style) per non-transparent pixel.  The cost has three components:
+#
+# 1. **Pixel iteration.**  from_image() walks every pixel in the RGBA image.
+#    This is O(width × height) with a Pillow pixel-access constant.
+#
+# 2. **Entity allocation.**  Each pixel becomes an Entity + Sprite + Style.
+#    Object creation in CPython is relatively fast (~1 µs per entity), but
+#    at 800 entities (a 40×20 image) the cumulative cost is measurable.
+#    At 10 000+ entities it dominates load time.
+#
+# 3. **Pre-processing (dithering pipeline).**  If the caller uses
+#    prepare_for_terminal() or quantize_for_terminal() before from_image(),
+#    the resizing, quantization, and optional dithering add further CPU
+#    cost — typically more than from_image() itself for large images.
+#
+# These costs are paid at *load time*, not per frame.  The critical guidance
+# is: **convert once, cache the entity list, reuse every frame.**
+
+class ImageConversionCost(enum.Enum):
+    """Estimated cost category for converting an image to entities.
+
+    Values are ordered from cheapest to most expensive.  Use comparison
+    operators to check threshold levels::
+
+        cost = estimate_image_conversion_cost(40, 20)
+        if cost >= ImageConversionCost.HEAVY:
+            # consider resizing the image first
+            ...
+
+    Caveats:
+        - These are **estimates** based on pixel count, not measurements.
+          Actual conversion time depends on CPU speed, Pillow version, and
+          Python implementation.
+        - The cost applies to the *initial conversion* only.  Once converted,
+          the entity list can be reused every frame at no additional cost.
+    """
+
+    LIGHT = 0
+    """< 256 pixels.  Negligible — suitable for small sprites and icons."""
+
+    MODERATE = 1
+    """256 – 1 024 pixels.  Fast but measurable.  Typical for medium sprites."""
+
+    HEAVY = 2
+    """1 024 – 4 096 pixels.  Noticeable pause on first load.  Pre-process
+    offline or show a loading indicator."""
+
+    EXTREME = 3
+    """> 4 096 pixels.  Slow conversion producing thousands of entities.
+    Will also impact rendering performance (see RenderCost).  Resize the
+    image before conversion."""
+
+    def __ge__(self, other: object) -> bool:
+        if not isinstance(other, ImageConversionCost):
+            return NotImplemented
+        return self.value >= other.value
+
+    def __gt__(self, other: object) -> bool:
+        if not isinstance(other, ImageConversionCost):
+            return NotImplemented
+        return self.value > other.value
+
+    def __le__(self, other: object) -> bool:
+        if not isinstance(other, ImageConversionCost):
+            return NotImplemented
+        return self.value <= other.value
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, ImageConversionCost):
+            return NotImplemented
+        return self.value < other.value
+
+
+# Cell-count boundaries for image conversion cost categories.
+# These reflect the number of *pixels* (each becoming an entity).
+
+IMAGE_LIGHT_PIXEL_LIMIT = 256
+"""Maximum pixel count considered LIGHT (< 16×16 sprite)."""
+
+IMAGE_MODERATE_PIXEL_LIMIT = 1_024
+"""Maximum pixel count considered MODERATE (< 32×32 sprite)."""
+
+IMAGE_HEAVY_PIXEL_LIMIT = 4_096
+"""Maximum pixel count considered HEAVY (< 64×64 image).  Beyond this,
+conversion time and entity count become significant."""
+
+
+def estimate_image_conversion_cost(
+    width: int,
+    height: int,
+    *,
+    has_alpha: bool = False,
+    alpha_coverage: float = 1.0,
+) -> ImageConversionCost:
+    """Estimate the cost of converting an image to entities via ``from_image()``.
+
+    Returns an :class:`ImageConversionCost` category based on the effective
+    number of pixels that will become entities.  Use this before calling
+    :func:`~wyby.sprite.from_image` to decide whether to resize first.
+
+    Args:
+        width: Image width in pixels.  Must be >= 1.
+        height: Image height in pixels.  Must be >= 1.
+        has_alpha: If ``True``, the image has an alpha channel and some
+            pixels may be transparent (skipped by ``from_image``).
+        alpha_coverage: Fraction of pixels that are opaque (0.0–1.0).
+            Only used when *has_alpha* is ``True``.  Defaults to 1.0
+            (all pixels opaque — worst case).
+
+    Returns:
+        An :class:`ImageConversionCost` enum member.
+
+    Raises:
+        ValueError: If *width* or *height* is less than 1, or if
+            *alpha_coverage* is not between 0.0 and 1.0.
+
+    Caveats:
+        - This estimates **conversion cost** (CPU time to create entities),
+          not **rendering cost** (frame-rate impact).  A HEAVY conversion
+          may produce entities that are only MODERATE to render if many
+          share the same style.  Use :func:`estimate_render_cost` for
+          rendering budgets.
+        - The estimate does not account for pre-processing steps
+          (``prepare_for_terminal``, ``quantize_for_terminal``).  Those
+          add their own CPU cost proportional to image size.
+    """
+    if width < 1:
+        raise ValueError(f"width must be >= 1, got {width}")
+    if height < 1:
+        raise ValueError(f"height must be >= 1, got {height}")
+    if not (0.0 <= alpha_coverage <= 1.0):
+        raise ValueError(
+            f"alpha_coverage must be between 0.0 and 1.0, "
+            f"got {alpha_coverage}"
+        )
+
+    total_pixels = width * height
+    if has_alpha:
+        effective_pixels = total_pixels * alpha_coverage
+    else:
+        effective_pixels = float(total_pixels)
+
+    if effective_pixels < IMAGE_LIGHT_PIXEL_LIMIT:
+        return ImageConversionCost.LIGHT
+    if effective_pixels < IMAGE_MODERATE_PIXEL_LIMIT:
+        return ImageConversionCost.MODERATE
+    if effective_pixels < IMAGE_HEAVY_PIXEL_LIMIT:
+        return ImageConversionCost.HEAVY
+    return ImageConversionCost.EXTREME
+
+
+def check_image_conversion_warning(
+    width: int,
+    height: int,
+    *,
+    has_alpha: bool = False,
+    alpha_coverage: float = 1.0,
+) -> str | None:
+    """Return a warning if image conversion cost is HEAVY or EXTREME, else ``None``.
+
+    Convenience wrapper around :func:`estimate_image_conversion_cost` that
+    returns a human-readable advisory for high-cost conversions.
+
+    Args:
+        width: Image width in pixels.
+        height: Image height in pixels.
+        has_alpha: Whether the image has an alpha channel.
+        alpha_coverage: Fraction of opaque pixels (0.0–1.0).
+
+    Returns:
+        A warning string with performance advice, or ``None`` if cost is
+        acceptably low (LIGHT or MODERATE).
+
+    Caveats:
+        - A ``None`` return does **not** guarantee fast conversion.  Even
+          small images take measurable time if the system is under load.
+        - The warning text is for developer diagnostics, not end-user display.
+    """
+    cost = estimate_image_conversion_cost(
+        width, height, has_alpha=has_alpha, alpha_coverage=alpha_coverage,
+    )
+    total = width * height
+
+    if cost == ImageConversionCost.HEAVY:
+        return (
+            f"Image {width}x{height} ({total:,} pixels) will create up to "
+            f"{total:,} entities. This is in the HEAVY conversion range. "
+            f"Conversion will take a noticeable pause — call from_image() "
+            f"at load time, not per-frame. Consider resizing to a smaller "
+            f"dimension (e.g. 32x16 or less) for real-time sprite use."
+        )
+    if cost == ImageConversionCost.EXTREME:
+        return (
+            f"Image {width}x{height} ({total:,} pixels) will create up to "
+            f"{total:,} entities. This is in the EXTREME conversion range. "
+            f"Conversion will be slow and the resulting entity count will "
+            f"also impact rendering performance. Resize the image before "
+            f"converting (e.g. img.resize((32, 16))) and quantize colours "
+            f"with quantize_for_terminal() to reduce unique styles."
+        )
+    return None
+
+
+def log_image_conversion_cost(
+    width: int,
+    height: int,
+    *,
+    has_alpha: bool = False,
+    alpha_coverage: float = 1.0,
+) -> ImageConversionCost:
+    """Estimate image conversion cost and log a warning if elevated.
+
+    Combines :func:`estimate_image_conversion_cost` with
+    :func:`check_image_conversion_warning` and logs at the appropriate
+    level:
+
+    - ``LIGHT`` / ``MODERATE``: logged at ``DEBUG``.
+    - ``HEAVY`` / ``EXTREME``: logged at ``WARNING``.
+
+    Returns the :class:`ImageConversionCost` so callers can take action.
+
+    Args:
+        width: Image width in pixels.
+        height: Image height in pixels.
+        has_alpha: Whether the image has an alpha channel.
+        alpha_coverage: Fraction of opaque pixels (0.0–1.0).
+
+    Returns:
+        The estimated :class:`ImageConversionCost` category.
+    """
+    cost = estimate_image_conversion_cost(
+        width, height, has_alpha=has_alpha, alpha_coverage=alpha_coverage,
+    )
+    total = width * height
+
+    if cost <= ImageConversionCost.MODERATE:
+        _logger.debug(
+            "Image conversion cost estimate: %s for %dx%d image "
+            "(%d pixels)",
+            cost.name, width, height, total,
+        )
+    else:
+        warning = check_image_conversion_warning(
+            width, height, has_alpha=has_alpha, alpha_coverage=alpha_coverage,
+        )
+        if warning:
+            _logger.warning(warning)
+
+    return cost
