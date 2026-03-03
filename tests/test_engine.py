@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+from wyby._logging import _LIBRARY_LOGGER_NAME
 from wyby.app import (
     Engine,
     _DEFAULT_HEIGHT,
@@ -884,3 +885,100 @@ class TestEngineFixedTimestep:
         # If the accumulator leaked between runs, the second run would
         # behave differently.  tick_count being 1 confirms a clean reset.
         assert engine.tick_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Debug mode
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def _restore_wyby_logger():
+    """Save and restore the wyby logger's handlers and level.
+
+    Engine(debug=True) mutates the shared wyby logger via
+    configure_logging(). Without cleanup, state leaks between tests.
+    """
+    logger = logging.getLogger(_LIBRARY_LOGGER_NAME)
+    original_handlers = logger.handlers[:]
+    original_level = logger.level
+    yield
+    logger.handlers[:] = original_handlers
+    logger.setLevel(original_level)
+
+
+@pytest.mark.usefixtures("_restore_wyby_logger")
+class TestEngineDebugMode:
+    """Engine(debug=True) should enable verbose logging."""
+
+    def test_debug_defaults_to_false(self) -> None:
+        engine = Engine()
+        assert engine.debug is False
+
+    def test_debug_can_be_enabled(self) -> None:
+        engine = Engine(debug=True)
+        assert engine.debug is True
+
+    def test_debug_is_read_only(self) -> None:
+        engine = Engine()
+        with pytest.raises(AttributeError):
+            engine.debug = True  # type: ignore[misc]
+
+    def test_debug_configures_logging_at_debug_level(self) -> None:
+        """debug=True should set the wyby logger to DEBUG level."""
+        Engine(debug=True)
+        logger = logging.getLogger(_LIBRARY_LOGGER_NAME)
+        assert logger.level == logging.DEBUG
+
+    def test_debug_false_does_not_change_logging(self) -> None:
+        """debug=False (default) should not alter the logger level."""
+        logger = logging.getLogger(_LIBRARY_LOGGER_NAME)
+        level_before = logger.level
+        Engine(debug=False)
+        assert logger.level == level_before
+
+    def test_debug_adds_stderr_handler(self) -> None:
+        """debug=True should add a StreamHandler to the wyby logger."""
+        logger = logging.getLogger(_LIBRARY_LOGGER_NAME)
+        handler_count_before = len(logger.handlers)
+        Engine(debug=True)
+        assert len(logger.handlers) > handler_count_before
+
+    def test_debug_emits_init_message(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """debug=True should produce the Engine initialized log message."""
+        with caplog.at_level(logging.DEBUG, logger="wyby.app"):
+            Engine(debug=True)
+        messages = [r.message for r in caplog.records]
+        assert any("Engine initialized" in m for m in messages)
+
+    def test_debug_coerces_truthy_values(self) -> None:
+        """Non-bool truthy values should be coerced to True."""
+        engine = Engine(debug=1)  # type: ignore[arg-type]
+        assert engine.debug is True
+
+    def test_debug_coerces_falsy_values(self) -> None:
+        """Non-bool falsy values should be coerced to False."""
+        engine = Engine(debug=0)  # type: ignore[arg-type]
+        assert engine.debug is False
+
+
+@pytest.mark.usefixtures("_restore_wyby_logger")
+class TestEngineDebugRepr:
+    """__repr__ should include debug=True only when debug is enabled."""
+
+    def test_repr_omits_debug_when_false(self) -> None:
+        engine = Engine()
+        assert "debug" not in repr(engine)
+
+    def test_repr_includes_debug_when_true(self) -> None:
+        engine = Engine(debug=True)
+        r = repr(engine)
+        assert "debug=True" in r
+
+    def test_repr_debug_format(self) -> None:
+        engine = Engine(title="Snake", width=40, height=20, debug=True)
+        assert repr(engine) == (
+            "Engine(title='Snake', width=40, height=20, tps=30, debug=True)"
+        )

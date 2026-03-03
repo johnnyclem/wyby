@@ -66,6 +66,8 @@ from __future__ import annotations
 import logging
 import time
 
+from wyby._logging import configure_logging
+
 _logger = logging.getLogger(__name__)
 
 # Minimum grid dimensions. A 1x1 grid is technically valid but useless
@@ -169,6 +171,11 @@ class Engine:
         tps: Target ticks per second.  Determines the fixed timestep
             (``target_dt = 1.0 / tps``).  Must be between 1 and 240
             inclusive.  Defaults to 30 (~33 ms per tick).
+        debug: When ``True``, automatically configures the ``wyby``
+            logger hierarchy to emit ``DEBUG``-level messages to stderr.
+            This is a convenience shortcut equivalent to calling
+            ``configure_logging(level=logging.DEBUG)`` yourself.
+            Defaults to ``False``.
 
     Raises:
         TypeError: If *title* is not a string, or *width*/*height*/*tps*
@@ -197,6 +204,7 @@ class Engine:
         "_height",
         "_tps",
         "_target_dt",
+        "_debug",
         "_running",
         "_tick_count",
         "_dt",
@@ -211,6 +219,7 @@ class Engine:
         width: int = _DEFAULT_WIDTH,
         height: int = _DEFAULT_HEIGHT,
         tps: int = _DEFAULT_TPS,
+        debug: bool = False,
     ) -> None:
         if not isinstance(title, str):
             raise TypeError(
@@ -253,6 +262,16 @@ class Engine:
         self._height = height
         self._tps = tps
         self._target_dt = 1.0 / tps
+        self._debug = bool(debug)
+
+        # Caveat: calling configure_logging() is additive — each call adds
+        # a new handler. Creating multiple Engine(debug=True) instances will
+        # produce duplicate log output. This is a convenience shortcut for
+        # the common single-engine case. For multi-engine or advanced setups,
+        # call configure_logging() directly before constructing the engine.
+        if self._debug:
+            configure_logging(level=logging.DEBUG)
+
         self._running = False
         self._tick_count: int = 0
         self._dt: float = 0.0
@@ -287,6 +306,11 @@ class Engine:
     def tps(self) -> int:
         """Target ticks per second."""
         return self._tps
+
+    @property
+    def debug(self) -> bool:
+        """Whether debug mode is enabled (verbose logging to stderr)."""
+        return self._debug
 
     @property
     def target_dt(self) -> float:
@@ -518,8 +542,11 @@ class Engine:
         self._tick_count += 1
 
     def __repr__(self) -> str:
-        return (
+        parts = (
             f"Engine(title={self._title!r}, "
             f"width={self._width!r}, height={self._height!r}, "
-            f"tps={self._tps!r})"
+            f"tps={self._tps!r}"
         )
+        if self._debug:
+            parts += ", debug=True"
+        return parts + ")"
