@@ -112,7 +112,7 @@ class Entity:
           the game — you must add it to your scene's entity collection.
     """
 
-    __slots__ = ("_id", "_x", "_y", "_tags", "_components")
+    __slots__ = ("_id", "_x", "_y", "_tags", "_components", "_alive")
 
     def __init__(
         self,
@@ -148,6 +148,7 @@ class Entity:
 
         self._x = x
         self._y = y
+        self._alive = True
         self._components: dict[type[Component], Component] = {}
 
         # Validate and store tags.
@@ -507,6 +508,65 @@ class Entity:
         # Snapshot via list() so mutations during iteration are safe.
         for component in list(self._components.values()):
             component.update(dt)
+
+    @property
+    def alive(self) -> bool:
+        """Whether this entity is still alive (not destroyed).
+
+        Returns ``False`` after :meth:`destroy` has been called.
+        """
+        return self._alive
+
+    def destroy(self) -> None:
+        """Mark this entity as destroyed and detach all components.
+
+        Calls :meth:`~wyby.component.Component.on_detach` on every
+        attached component (in attachment order), clears the component
+        dict, clears tags, and sets :attr:`alive` to ``False``.
+
+        Calling ``destroy()`` on an already-destroyed entity is a
+        no-op — it will not raise or re-trigger detach hooks.
+
+        Caveats:
+            - **Does not remove the entity from any scene.**  The game
+              must call ``scene.remove_entity(entity)`` separately.
+              ``destroy()`` is purely about cleaning up the entity's
+              own state (components and tags).  Scenes have no
+              automatic "dead entity sweep" — you must remove destroyed
+              entities in your game loop or scene update.
+            - **Components are detached in attachment order** (dict
+              insertion order, guaranteed in Python 3.7+).  Each
+              component's ``on_detach`` is called with ``self`` still
+              set as the entity, then the back-reference is cleared,
+              same as :meth:`remove_component`.
+            - **Idempotent.**  Calling ``destroy()`` more than once is
+              safe and does nothing after the first call.
+            - **The entity id is not recycled.**  A destroyed entity
+              still holds its id.  The auto-incrementing counter never
+              rewinds.
+            - **The entity remains a valid Python object** after
+              destruction.  Its ``id``, ``x``, ``y``, and ``position``
+              are still readable.  Code that holds a reference to the
+              entity should check :attr:`alive` before using it.
+        """
+        if not self._alive:
+            return
+
+        # Detach all components, calling on_detach for each.
+        # Snapshot via list() since we mutate the dict during iteration.
+        for comp_type, component in list(self._components.items()):
+            component.on_detach(self)
+            component._entity = None
+            _logger.debug(
+                "Component %s detached during destroy of Entity id=%d",
+                comp_type.__name__, self._id,
+            )
+        self._components.clear()
+
+        self._tags.clear()
+        self._alive = False
+
+        _logger.debug("Entity destroyed: id=%d", self._id)
 
     def move(self, dx: int, dy: int) -> None:
         """Move the entity by a relative offset.

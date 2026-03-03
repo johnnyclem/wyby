@@ -747,6 +747,126 @@ class TestHasComponent:
 
 
 # ---------------------------------------------------------------------------
+# destroy
+# ---------------------------------------------------------------------------
+
+
+class TestEntityDestroy:
+    """Entity.destroy() marks entity as dead and detaches all components."""
+
+    def test_alive_true_by_default(self) -> None:
+        e = Entity(entity_id=800)
+        assert e.alive is True
+
+    def test_destroy_sets_alive_false(self) -> None:
+        e = Entity(entity_id=801)
+        e.destroy()
+        assert e.alive is False
+
+    def test_destroy_detaches_all_components(self) -> None:
+        e = Entity(entity_id=802)
+        h = _Health()
+        v = _Velocity()
+        e.add_component(h)
+        e.add_component(v)
+        e.destroy()
+        assert h.entity is None
+        assert v.entity is None
+
+    def test_destroy_calls_on_detach_for_each_component(self) -> None:
+        e = Entity(entity_id=803)
+        h = _Health()
+        e.add_component(h)
+        e.destroy()
+        assert h.detach_calls == [803]
+
+    def test_destroy_clears_tags(self) -> None:
+        e = Entity(tags=["enemy", "boss"], entity_id=804)
+        e.destroy()
+        assert e.tags == frozenset()
+
+    def test_destroy_clears_components(self) -> None:
+        e = Entity(entity_id=805)
+        e.add_component(_Health())
+        e.destroy()
+        assert e.has_component(_Health) is False
+
+    def test_destroy_is_idempotent(self) -> None:
+        """Calling destroy() twice does not raise or re-trigger hooks."""
+        e = Entity(entity_id=806)
+        h = _Health()
+        e.add_component(h)
+        e.destroy()
+        e.destroy()  # Should not raise.
+        assert e.alive is False
+        # on_detach was called only once.
+        assert h.detach_calls == [806]
+
+    def test_destroy_preserves_id_and_position(self) -> None:
+        """id and position remain readable after destruction."""
+        e = Entity(5, 10, entity_id=807)
+        e.destroy()
+        assert e.id == 807
+        assert e.x == 5
+        assert e.y == 10
+        assert e.position == (5, 10)
+
+    def test_destroy_with_no_components_or_tags(self) -> None:
+        """Destroying a bare entity is a no-op beyond setting alive=False."""
+        e = Entity(entity_id=808)
+        e.destroy()
+        assert e.alive is False
+
+    def test_destroy_on_detach_entity_still_set(self) -> None:
+        """During on_detach from destroy, component.entity still points to the entity."""
+        entity_during_detach = []
+
+        class _Spy(Component):
+            def on_detach(self, entity: Entity) -> None:
+                entity_during_detach.append(self.entity)
+
+        e = Entity(entity_id=809)
+        s = _Spy()
+        e.add_component(s)
+        e.destroy()
+        assert entity_during_detach == [e]
+        assert s.entity is None
+
+    def test_destroyed_component_can_be_reattached(self) -> None:
+        """Components detached by destroy() can be attached to a new entity."""
+        e1 = Entity(entity_id=810)
+        e2 = Entity(entity_id=811)
+        h = _Health()
+        e1.add_component(h)
+        e1.destroy()
+        e2.add_component(h)
+        assert h.entity is e2
+
+    def test_destroy_detach_order_matches_attachment_order(self) -> None:
+        """Components are detached in the order they were attached."""
+        detach_order: list[str] = []
+
+        class _A(Component):
+            def on_detach(self, entity: Entity) -> None:
+                detach_order.append("A")
+
+        class _B(Component):
+            def on_detach(self, entity: Entity) -> None:
+                detach_order.append("B")
+
+        class _C(Component):
+            def on_detach(self, entity: Entity) -> None:
+                detach_order.append("C")
+
+        e = Entity(entity_id=812)
+        e.add_component(_A())
+        e.add_component(_B())
+        e.add_component(_C())
+        e.destroy()
+        assert detach_order == ["A", "B", "C"]
+
+
+# ---------------------------------------------------------------------------
 # Import from package root
 # ---------------------------------------------------------------------------
 
