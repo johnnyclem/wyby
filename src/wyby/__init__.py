@@ -60,6 +60,11 @@ from wyby.unicode import (
     string_width,
 )
 from wyby.layer import Layer, LayerStack
+from wyby.mouse_warnings import (
+    check_mouse_drag_warning,
+    check_mouse_hover_warning,
+    log_mouse_warnings,
+)
 from wyby.render_warnings import (
     RenderCost,
     check_emoji_warning,
@@ -117,6 +122,8 @@ __all__ = [
     "grapheme_string_width",
     "grapheme_width",
     "check_flicker_risk",
+    "check_mouse_drag_warning",
+    "check_mouse_hover_warning",
     "configure_logging",
     "create_console",
     "detect_capabilities",
@@ -131,6 +138,7 @@ __all__ = [
     "is_wide_char",
     "iter_grapheme_clusters",
     "log_emoji_warning",
+    "log_mouse_warnings",
     "log_render_cost",
     "nearest_ansi16",
     "nearest_ansi256",

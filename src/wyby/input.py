@@ -694,6 +694,16 @@ class InputManager:
         self._started = True
         if self._mouse and not self.is_fallback:
             _enable_mouse_mode(self._mouse_motion)
+            # Log hover/drag consistency warnings.  These are diagnostic
+            # advisories — mouse hover and drag behaviour varies across
+            # terminal emulators, and developers should be aware of
+            # limitations.  See mouse_warnings.py for full details.
+            from wyby.mouse_warnings import log_mouse_warnings
+
+            log_mouse_warnings(
+                terminal_program=None,
+                motion_enabled=self._mouse_motion,
+            )
         _logger.debug("InputManager started (mouse=%s)", self._mouse)
 
     def stop(self) -> None:
