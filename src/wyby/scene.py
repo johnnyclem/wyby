@@ -25,7 +25,9 @@ Caveats:
       a scene becomes or ceases to be the active (top) scene. They are
       **not** called when the scene is merely covered by another scene
       pushed on top. Override :meth:`on_pause` and :meth:`on_resume`
-      for that case.
+      for that case.  All four lifecycle hooks support callback-based
+      hooks (``add_pause_hook``, ``add_resume_hook``, etc.) for
+      external systems that need to react without subclassing.
     - :meth:`Scene.handle_events` is called once per tick with the
       list of events drained from the :class:`EventQueue`, **before**
       :meth:`Scene.update`. Only the top scene receives events.
@@ -36,7 +38,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -69,9 +71,13 @@ class Scene(ABC):
 
     In addition to the override-based hooks, scenes support
     **callback-based hooks** via :meth:`add_enter_hook`,
-    :meth:`add_exit_hook`, etc. These allow external code (debug
+    :meth:`add_exit_hook`, :meth:`add_pause_hook`, and
+    :meth:`add_resume_hook`.  These allow external code (debug
     tools, analytics, sound managers) to react to scene transitions
-    without subclassing.
+    without subclassing.  For menus and pause overlays, the pause
+    and resume hooks are particularly useful — e.g., pausing
+    background music when a pause menu is pushed, and resuming it
+    when the menu is popped.
 
     Caveats:
         - Scenes do **not** receive a reference to the engine or stack
@@ -94,8 +100,9 @@ class Scene(ABC):
           registered callbacks will still work (lazy initialization),
           but calling ``super().__init__()`` is the recommended pattern.
         - Registered callbacks are invoked **after** the overridden
-          ``on_enter``/``on_exit`` method, in registration order.
-          If the overridden method raises, callbacks are not invoked.
+          ``on_enter``/``on_exit``/``on_pause``/``on_resume`` method,
+          in registration order.  If the overridden method raises,
+          callbacks are not invoked.
         - Callbacks must not raise exceptions. If a callback raises,
           remaining callbacks in the list are skipped and the exception
           propagates. Guard your callbacks with try/except if they
@@ -105,6 +112,8 @@ class Scene(ABC):
     def __init__(self) -> None:
         self._enter_hooks: list[Callable[[], None]] = []
         self._exit_hooks: list[Callable[[], None]] = []
+        self._pause_hooks: list[Callable[[], None]] = []
+        self._resume_hooks: list[Callable[[], None]] = []
         self._updates_when_paused: bool = False
         self._renders_when_paused: bool = False
 
@@ -363,6 +372,92 @@ class Scene(ABC):
         hooks = getattr(self, "_exit_hooks", [])
         hooks.remove(callback)  # raises ValueError if not found
 
+    def add_pause_hook(self, callback: Callable[[], None]) -> None:
+        """Register a callback invoked when this scene is paused.
+
+        Callbacks run after :meth:`on_pause`, in registration order.
+        A scene is paused when another scene is pushed on top of it.
+
+        Args:
+            callback: A zero-argument callable.
+
+        Raises:
+            TypeError: If *callback* is not callable.
+
+        Caveats:
+            - The same callback can be registered multiple times and
+              will be called once per registration.
+            - Callbacks must not raise. An exception in a callback
+              prevents subsequent callbacks from running.
+            - Pause hooks are useful for external systems (sound
+              managers, timers, analytics) that need to react when a
+              menu or overlay is pushed over this scene.
+        """
+        if not callable(callback):
+            raise TypeError(
+                f"callback must be callable, got {type(callback).__name__}"
+            )
+        if not hasattr(self, "_pause_hooks"):
+            self._pause_hooks = []
+        self._pause_hooks.append(callback)
+
+    def remove_pause_hook(self, callback: Callable[[], None]) -> None:
+        """Remove a previously registered on-pause callback.
+
+        Only the first matching registration is removed.
+
+        Args:
+            callback: The callback to remove.
+
+        Raises:
+            ValueError: If *callback* is not registered.
+        """
+        hooks = getattr(self, "_pause_hooks", [])
+        hooks.remove(callback)  # raises ValueError if not found
+
+    def add_resume_hook(self, callback: Callable[[], None]) -> None:
+        """Register a callback invoked when this scene resumes.
+
+        Callbacks run after :meth:`on_resume`, in registration order.
+        A scene resumes when the scene above it is popped.
+
+        Args:
+            callback: A zero-argument callable.
+
+        Raises:
+            TypeError: If *callback* is not callable.
+
+        Caveats:
+            - The same callback can be registered multiple times and
+              will be called once per registration.
+            - Callbacks must not raise. An exception in a callback
+              prevents subsequent callbacks from running.
+            - Resume hooks are useful for external systems (sound
+              managers, timers) that need to restart when returning
+              from a menu or overlay.
+        """
+        if not callable(callback):
+            raise TypeError(
+                f"callback must be callable, got {type(callback).__name__}"
+            )
+        if not hasattr(self, "_resume_hooks"):
+            self._resume_hooks = []
+        self._resume_hooks.append(callback)
+
+    def remove_resume_hook(self, callback: Callable[[], None]) -> None:
+        """Remove a previously registered on-resume callback.
+
+        Only the first matching registration is removed.
+
+        Args:
+            callback: The callback to remove.
+
+        Raises:
+            ValueError: If *callback* is not registered.
+        """
+        hooks = getattr(self, "_resume_hooks", [])
+        hooks.remove(callback)  # raises ValueError if not found
+
     # ------------------------------------------------------------------
     # Internal: fire hooks (called by SceneStack)
     # ------------------------------------------------------------------
@@ -377,6 +472,18 @@ class Scene(ABC):
         """Invoke on_exit() then all registered exit callbacks."""
         self.on_exit()
         for cb in getattr(self, "_exit_hooks", ()):
+            cb()
+
+    def _fire_pause(self) -> None:
+        """Invoke on_pause() then all registered pause callbacks."""
+        self.on_pause()
+        for cb in getattr(self, "_pause_hooks", ()):
+            cb()
+
+    def _fire_resume(self) -> None:
+        """Invoke on_resume() then all registered resume callbacks."""
+        self.on_resume()
+        for cb in getattr(self, "_resume_hooks", ()):
             cb()
 
 
@@ -442,6 +549,37 @@ class SceneStack:
     def is_empty(self) -> bool:
         """Whether the stack has no scenes."""
         return len(self._stack) == 0
+
+    def __contains__(self, scene: object) -> bool:
+        """Check whether a scene instance is on the stack.
+
+        Uses identity comparison (``is``), not equality.  This is
+        useful for the common menu/pause pattern of checking whether
+        a pause menu is already on the stack before pushing a second
+        one::
+
+            if pause_menu not in engine.scenes:
+                engine.push_scene(pause_menu)
+
+        Caveats:
+            - This is an O(n) scan.  For typical stack depths (< 10)
+              this is negligible.
+            - Checks identity, not type.  Two different instances of
+              the same scene class are considered different scenes.
+        """
+        return any(s is scene for s in self._stack)
+
+    def __iter__(self) -> Iterator[Scene]:
+        """Iterate over scenes from bottom to top.
+
+        Yields a snapshot — mutating the stack during iteration does
+        not affect the iterator.
+
+        Caveats:
+            - Bottom-to-top order matches render and update order.
+              The last yielded scene is the active (top) scene.
+        """
+        yield from list(self._stack)
 
     def peek(self) -> Scene | None:
         """Return the top scene without removing it, or ``None`` if empty.
@@ -550,7 +688,7 @@ class SceneStack:
             _logger.debug(
                 "Pausing scene %r (depth %d)", type(current).__name__, len(self._stack)
             )
-            current.on_pause()
+            current._fire_pause()
 
         self._stack.append(scene)
         _logger.debug(
@@ -592,7 +730,7 @@ class SceneStack:
                 type(new_top).__name__,
                 len(self._stack),
             )
-            new_top.on_resume()
+            new_top._fire_resume()
 
         return scene
 

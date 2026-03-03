@@ -1268,3 +1268,480 @@ class TestSceneStackScenesToRender:
         stack.push(top)
         assert bottom in stack.scenes_to_update()
         assert bottom not in stack.scenes_to_render()
+
+
+# ---------------------------------------------------------------------------
+# __contains__
+# ---------------------------------------------------------------------------
+
+
+class TestSceneStackContains:
+    """SceneStack.__contains__() — identity-based membership check."""
+
+    def test_contains_pushed_scene(self) -> None:
+        stack = SceneStack()
+        scene = DummyScene()
+        stack.push(scene)
+        assert scene in stack
+
+    def test_not_contains_unpushed_scene(self) -> None:
+        stack = SceneStack()
+        scene = DummyScene()
+        assert scene not in stack
+
+    def test_not_contains_after_pop(self) -> None:
+        stack = SceneStack()
+        scene = DummyScene()
+        stack.push(scene)
+        stack.pop()
+        assert scene not in stack
+
+    def test_contains_paused_scene(self) -> None:
+        """A scene covered by another is still on the stack."""
+        stack = SceneStack()
+        bottom = DummyScene("bottom")
+        top = DummyScene("top")
+        stack.push(bottom)
+        stack.push(top)
+        assert bottom in stack
+        assert top in stack
+
+    def test_contains_uses_identity_not_equality(self) -> None:
+        """Two different instances of the same class are distinct."""
+        stack = SceneStack()
+        a = DummyScene("same_name")
+        b = DummyScene("same_name")
+        stack.push(a)
+        assert a in stack
+        assert b not in stack
+
+    def test_contains_non_scene_returns_false(self) -> None:
+        """Non-Scene objects should return False, not raise."""
+        stack = SceneStack()
+        stack.push(DummyScene())
+        assert "not a scene" not in stack
+        assert 42 not in stack
+
+    def test_empty_stack_contains_nothing(self) -> None:
+        stack = SceneStack()
+        assert DummyScene() not in stack
+
+
+# ---------------------------------------------------------------------------
+# __iter__
+# ---------------------------------------------------------------------------
+
+
+class TestSceneStackIter:
+    """SceneStack.__iter__() — bottom-to-top iteration."""
+
+    def test_iter_empty_stack(self) -> None:
+        stack = SceneStack()
+        assert list(stack) == []
+
+    def test_iter_single_scene(self) -> None:
+        stack = SceneStack()
+        scene = DummyScene()
+        stack.push(scene)
+        assert list(stack) == [scene]
+
+    def test_iter_order_is_bottom_to_top(self) -> None:
+        stack = SceneStack()
+        a = DummyScene("a")
+        b = DummyScene("b")
+        c = DummyScene("c")
+        stack.push(a)
+        stack.push(b)
+        stack.push(c)
+        assert list(stack) == [a, b, c]
+
+    def test_iter_is_snapshot(self) -> None:
+        """Mutating the stack during iteration should not affect the iterator."""
+        stack = SceneStack()
+        a = DummyScene("a")
+        b = DummyScene("b")
+        stack.push(a)
+        stack.push(b)
+        result = []
+        for scene in stack:
+            result.append(scene)
+            if len(result) == 1:
+                stack.pop()  # mutate during iteration
+        assert result == [a, b]
+
+    def test_iter_supports_multiple_passes(self) -> None:
+        stack = SceneStack()
+        stack.push(DummyScene("a"))
+        stack.push(DummyScene("b"))
+        pass1 = list(stack)
+        pass2 = list(stack)
+        assert pass1 == pass2
+
+
+# ---------------------------------------------------------------------------
+# Callback-based pause/resume hooks
+# ---------------------------------------------------------------------------
+
+
+class TestScenePauseHooks:
+    """Callback-based on_pause hooks via add_pause_hook / remove_pause_hook."""
+
+    def test_pause_hook_fires_on_push(self) -> None:
+        """Pushing a new scene pauses the old top, firing pause hooks."""
+        stack = SceneStack()
+        bottom = DummyScene("bottom")
+        log: list[str] = []
+        bottom.add_pause_hook(lambda: log.append("paused"))
+        stack.push(bottom)
+        stack.push(DummyScene("top"))
+        assert "paused" in log
+
+    def test_pause_hook_fires_after_on_pause(self) -> None:
+        """Registered callbacks fire after the overridden on_pause."""
+        stack = SceneStack()
+        scene = DummyScene()
+        order: list[str] = []
+        original_on_pause = scene.on_pause
+
+        def tracking_on_pause() -> None:
+            original_on_pause()
+            order.append("on_pause")
+
+        scene.on_pause = tracking_on_pause  # type: ignore[assignment]
+        scene.add_pause_hook(lambda: order.append("hook"))
+        stack.push(scene)
+        stack.push(DummyScene("overlay"))
+        assert order == ["on_pause", "hook"]
+
+    def test_multiple_pause_hooks_fire_in_order(self) -> None:
+        stack = SceneStack()
+        scene = DummyScene()
+        log: list[int] = []
+        scene.add_pause_hook(lambda: log.append(1))
+        scene.add_pause_hook(lambda: log.append(2))
+        scene.add_pause_hook(lambda: log.append(3))
+        stack.push(scene)
+        stack.push(DummyScene("overlay"))
+        assert log == [1, 2, 3]
+
+    def test_remove_pause_hook(self) -> None:
+        scene = DummyScene()
+        log: list[str] = []
+        cb = lambda: log.append("should_not_fire")  # noqa: E731
+        scene.add_pause_hook(cb)
+        scene.remove_pause_hook(cb)
+        scene._fire_pause()
+        assert "should_not_fire" not in log
+
+    def test_remove_pause_hook_not_registered_raises(self) -> None:
+        scene = DummyScene()
+        with pytest.raises(ValueError):
+            scene.remove_pause_hook(lambda: None)
+
+    def test_add_pause_hook_rejects_non_callable(self) -> None:
+        scene = DummyScene()
+        with pytest.raises(TypeError, match="callback must be callable"):
+            scene.add_pause_hook(42)  # type: ignore[arg-type]
+
+    def test_same_callback_registered_twice(self) -> None:
+        """Same callback registered twice fires twice."""
+        scene = DummyScene()
+        count: list[int] = []
+        cb = lambda: count.append(1)  # noqa: E731
+        scene.add_pause_hook(cb)
+        scene.add_pause_hook(cb)
+        scene._fire_pause()
+        assert len(count) == 2
+
+    def test_remove_only_removes_first_registration(self) -> None:
+        scene = DummyScene()
+        count: list[int] = []
+        cb = lambda: count.append(1)  # noqa: E731
+        scene.add_pause_hook(cb)
+        scene.add_pause_hook(cb)
+        scene.remove_pause_hook(cb)
+        scene._fire_pause()
+        assert len(count) == 1
+
+
+class TestSceneResumeHooks:
+    """Callback-based on_resume hooks via add_resume_hook / remove_resume_hook."""
+
+    def test_resume_hook_fires_on_pop(self) -> None:
+        """Popping the top scene resumes the one below, firing resume hooks."""
+        stack = SceneStack()
+        bottom = DummyScene("bottom")
+        log: list[str] = []
+        bottom.add_resume_hook(lambda: log.append("resumed"))
+        stack.push(bottom)
+        stack.push(DummyScene("top"))
+        stack.pop()
+        assert "resumed" in log
+
+    def test_resume_hook_fires_after_on_resume(self) -> None:
+        """Registered callbacks fire after the overridden on_resume."""
+        scene = DummyScene()
+        order: list[str] = []
+        original_on_resume = scene.on_resume
+
+        def tracking_on_resume() -> None:
+            original_on_resume()
+            order.append("on_resume")
+
+        scene.on_resume = tracking_on_resume  # type: ignore[assignment]
+        scene.add_resume_hook(lambda: order.append("hook"))
+        scene._fire_resume()
+        assert order == ["on_resume", "hook"]
+
+    def test_multiple_resume_hooks_fire_in_order(self) -> None:
+        stack = SceneStack()
+        bottom = DummyScene("bottom")
+        log: list[int] = []
+        bottom.add_resume_hook(lambda: log.append(1))
+        bottom.add_resume_hook(lambda: log.append(2))
+        bottom.add_resume_hook(lambda: log.append(3))
+        stack.push(bottom)
+        stack.push(DummyScene("top"))
+        stack.pop()
+        assert log == [1, 2, 3]
+
+    def test_remove_resume_hook(self) -> None:
+        scene = DummyScene()
+        log: list[str] = []
+        cb = lambda: log.append("should_not_fire")  # noqa: E731
+        scene.add_resume_hook(cb)
+        scene.remove_resume_hook(cb)
+        scene._fire_resume()
+        assert "should_not_fire" not in log
+
+    def test_remove_resume_hook_not_registered_raises(self) -> None:
+        scene = DummyScene()
+        with pytest.raises(ValueError):
+            scene.remove_resume_hook(lambda: None)
+
+    def test_add_resume_hook_rejects_non_callable(self) -> None:
+        scene = DummyScene()
+        with pytest.raises(TypeError, match="callback must be callable"):
+            scene.add_resume_hook("not callable")  # type: ignore[arg-type]
+
+    def test_same_callback_registered_twice(self) -> None:
+        scene = DummyScene()
+        count: list[int] = []
+        cb = lambda: count.append(1)  # noqa: E731
+        scene.add_resume_hook(cb)
+        scene.add_resume_hook(cb)
+        scene._fire_resume()
+        assert len(count) == 2
+
+    def test_remove_only_removes_first_registration(self) -> None:
+        scene = DummyScene()
+        count: list[int] = []
+        cb = lambda: count.append(1)  # noqa: E731
+        scene.add_resume_hook(cb)
+        scene.add_resume_hook(cb)
+        scene.remove_resume_hook(cb)
+        scene._fire_resume()
+        assert len(count) == 1
+
+
+class TestScenePauseResumeHooksWithoutSuperInit:
+    """Pause/resume hooks should work even if subclass skips super().__init__()."""
+
+    def test_pause_hook_works_without_super_init(self) -> None:
+        class NoSuperScene(Scene):
+            def __init__(self) -> None:
+                pass
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = NoSuperScene()
+        log: list[str] = []
+        scene.add_pause_hook(lambda: log.append("paused"))
+        scene._fire_pause()
+        assert log == ["paused"]
+
+    def test_resume_hook_works_without_super_init(self) -> None:
+        class NoSuperScene(Scene):
+            def __init__(self) -> None:
+                pass
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = NoSuperScene()
+        log: list[str] = []
+        scene.add_resume_hook(lambda: log.append("resumed"))
+        scene._fire_resume()
+        assert log == ["resumed"]
+
+    def test_fire_pause_without_hooks_is_safe(self) -> None:
+        class NoSuperScene(Scene):
+            def __init__(self) -> None:
+                pass
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = NoSuperScene()
+        scene._fire_pause()  # Should not raise
+
+    def test_fire_resume_without_hooks_is_safe(self) -> None:
+        class NoSuperScene(Scene):
+            def __init__(self) -> None:
+                pass
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = NoSuperScene()
+        scene._fire_resume()  # Should not raise
+
+
+# ---------------------------------------------------------------------------
+# Menu/pause workflow integration
+# ---------------------------------------------------------------------------
+
+
+class TestMenuPauseWorkflow:
+    """Integration tests for the menu/pause scene stack pattern.
+
+    These tests verify the common workflow of pushing a pause menu
+    or overlay scene on top of a gameplay scene, and popping it to
+    resume gameplay.
+    """
+
+    def test_push_pause_menu_pauses_gameplay(self) -> None:
+        """Pushing a pause menu triggers on_pause on the gameplay scene."""
+        stack = SceneStack()
+        gameplay = DummyScene("gameplay")
+        pause_menu = DummyScene("pause")
+        stack.push(gameplay)
+        gameplay.calls.clear()
+        stack.push(pause_menu)
+        assert "on_pause" in gameplay.calls
+        assert "on_enter" in pause_menu.calls
+
+    def test_pop_pause_menu_resumes_gameplay(self) -> None:
+        """Popping the pause menu triggers on_resume on the gameplay scene."""
+        stack = SceneStack()
+        gameplay = DummyScene("gameplay")
+        pause_menu = DummyScene("pause")
+        stack.push(gameplay)
+        stack.push(pause_menu)
+        gameplay.calls.clear()
+        stack.pop()
+        assert "on_resume" in gameplay.calls
+
+    def test_gameplay_visible_behind_pause_when_flagged(self) -> None:
+        """A gameplay scene with renders_when_paused=True renders behind
+        a pause overlay."""
+        stack = SceneStack()
+        gameplay = DummyScene("gameplay")
+        gameplay.renders_when_paused = True
+        pause_menu = DummyScene("pause")
+        stack.push(gameplay)
+        stack.push(pause_menu)
+        renderable = stack.scenes_to_render()
+        assert renderable == [gameplay, pause_menu]
+
+    def test_gameplay_frozen_behind_pause_by_default(self) -> None:
+        """By default, a gameplay scene does not update or render when
+        a pause menu is on top."""
+        stack = SceneStack()
+        gameplay = DummyScene("gameplay")
+        pause_menu = DummyScene("pause")
+        stack.push(gameplay)
+        stack.push(pause_menu)
+        assert gameplay not in stack.scenes_to_update()
+        assert gameplay not in stack.scenes_to_render()
+
+    def test_prevent_double_push_with_contains(self) -> None:
+        """Use __contains__ to prevent pushing the same pause menu twice."""
+        stack = SceneStack()
+        gameplay = DummyScene("gameplay")
+        pause_menu = DummyScene("pause")
+        stack.push(gameplay)
+        stack.push(pause_menu)
+        # Simulate pressing pause again — should not push a second time.
+        if pause_menu not in stack:
+            stack.push(pause_menu)
+        assert len(stack) == 2  # Still just 2 scenes
+
+    def test_full_pause_resume_lifecycle(self) -> None:
+        """Full lifecycle: gameplay -> push pause -> pop pause -> gameplay."""
+        call_log: list[str] = []
+
+        class TrackedScene(Scene):
+            def __init__(self, name: str) -> None:
+                super().__init__()
+                self._name = name
+
+            def update(self, dt: float) -> None:
+                call_log.append(f"{self._name}.update")
+
+            def render(self) -> None:
+                call_log.append(f"{self._name}.render")
+
+            def on_enter(self) -> None:
+                call_log.append(f"{self._name}.on_enter")
+
+            def on_exit(self) -> None:
+                call_log.append(f"{self._name}.on_exit")
+
+            def on_pause(self) -> None:
+                call_log.append(f"{self._name}.on_pause")
+
+            def on_resume(self) -> None:
+                call_log.append(f"{self._name}.on_resume")
+
+        gameplay = TrackedScene("gameplay")
+        pause_menu = TrackedScene("pause")
+
+        stack = SceneStack()
+        stack.push(gameplay)
+        assert call_log == ["gameplay.on_enter"]
+        call_log.clear()
+
+        # Push pause menu
+        stack.push(pause_menu)
+        assert call_log == ["gameplay.on_pause", "pause.on_enter"]
+        call_log.clear()
+
+        # Only pause menu updates/renders
+        assert stack.scenes_to_update() == [pause_menu]
+        assert stack.scenes_to_render() == [pause_menu]
+
+        # Pop pause menu — gameplay resumes
+        stack.pop()
+        assert call_log == ["pause.on_exit", "gameplay.on_resume"]
+        call_log.clear()
+
+        # Gameplay is active again
+        assert stack.peek() is gameplay
+        assert stack.scenes_to_update() == [gameplay]
+
+    def test_pause_resume_hooks_in_workflow(self) -> None:
+        """Pause/resume callback hooks fire during menu push/pop."""
+        stack = SceneStack()
+        gameplay = DummyScene("gameplay")
+        log: list[str] = []
+        gameplay.add_pause_hook(lambda: log.append("music_paused"))
+        gameplay.add_resume_hook(lambda: log.append("music_resumed"))
+        stack.push(gameplay)
+        stack.push(DummyScene("pause_menu"))
+        assert log == ["music_paused"]
+        stack.pop()
+        assert log == ["music_paused", "music_resumed"]
