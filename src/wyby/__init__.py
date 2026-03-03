@@ -160,6 +160,12 @@ from wyby.example_line_counts import (
     count_lines,
     format_line_counts,
 )
+from wyby.example_runner import (
+    ExampleCheckResult,
+    check_all_examples,
+    check_example,
+    format_check_results,
+)
 
 # Attach a NullHandler so that wyby's internal log messages are silently
 # discarded unless the application (game) configures logging. This follows
@@ -311,4 +317,8 @@ __all__ = [
     "count_example_lines",
     "count_lines",
     "format_line_counts",
+    "ExampleCheckResult",
+    "check_all_examples",
+    "check_example",
+    "format_check_results",
 ]
