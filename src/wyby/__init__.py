@@ -125,6 +125,7 @@ from wyby.layout import Alignment, HBox, VBox
 from wyby.text_input import TextInput
 from wyby.cell_size_map import CellSizeMap
 from wyby.collision import AABB, aabb_overlap
+from wyby.particle import Particle, update_particles
 from wyby.physics import PHYSICS_SCOPE, sync_positions, update_velocities
 from wyby.tile_collision import TileMap
 from wyby.font_variance import (
@@ -282,8 +283,10 @@ __all__ = [
     "TextInput",
     "AABB",
     "aabb_overlap",
+    "Particle",
     "PHYSICS_SCOPE",
     "sync_positions",
+    "update_particles",
     "update_velocities",
     "TileMap",
 ]
