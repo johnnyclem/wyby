@@ -1745,3 +1745,242 @@ class TestMenuPauseWorkflow:
         assert log == ["music_paused"]
         stack.pop()
         assert log == ["music_paused", "music_resumed"]
+
+
+# ---------------------------------------------------------------------------
+# SceneStack.dispatch_events — input routing to top scene
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchEvents:
+    """SceneStack.dispatch_events routes input to the top scene only."""
+
+    def test_delivers_events_to_top_scene(self) -> None:
+        """Events are passed to the top scene's handle_events."""
+        stack = SceneStack()
+        received: list[list[Event]] = []
+
+        class EventScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                received.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        stack.push(EventScene())
+        evt1, evt2 = Event(), Event()
+        result = stack.dispatch_events([evt1, evt2])
+
+        assert result is True
+        assert len(received) == 1
+        assert received[0] == [evt1, evt2]
+
+    def test_returns_false_on_empty_stack(self) -> None:
+        """dispatch_events returns False when the stack is empty."""
+        stack = SceneStack()
+        result = stack.dispatch_events([Event()])
+        assert result is False
+
+    def test_returns_true_with_scene(self) -> None:
+        """dispatch_events returns True when a scene receives events."""
+        stack = SceneStack()
+        stack.push(DummyScene())
+        result = stack.dispatch_events([])
+        assert result is True
+
+    def test_empty_events_still_delivered(self) -> None:
+        """An empty event list is still passed to handle_events."""
+        stack = SceneStack()
+        received: list[list[Event]] = []
+
+        class EventScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                received.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        stack.push(EventScene())
+        stack.dispatch_events([])
+
+        assert len(received) == 1
+        assert received[0] == []
+
+    def test_only_top_scene_receives_events(self) -> None:
+        """Paused scenes below the top do not receive events."""
+        stack = SceneStack()
+        bottom_events: list[list[Event]] = []
+        top_events: list[list[Event]] = []
+
+        class BottomScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                bottom_events.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        class TopScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                top_events.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        stack.push(BottomScene())
+        stack.push(TopScene())
+        evt = Event()
+        stack.dispatch_events([evt])
+
+        assert len(top_events) == 1
+        assert top_events[0] == [evt]
+        assert len(bottom_events) == 0
+
+    def test_paused_scene_with_updates_when_paused_does_not_receive_events(
+        self,
+    ) -> None:
+        """A scene that updates when paused still does not receive events."""
+        stack = SceneStack()
+        bottom_events: list[list[Event]] = []
+
+        class UpdatingBottomScene(Scene):
+            def __init__(self) -> None:
+                super().__init__()
+                self.updates_when_paused = True
+
+            def handle_events(self, events: list[Event]) -> None:
+                bottom_events.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        stack.push(UpdatingBottomScene())
+        stack.push(DummyScene("top"))
+        stack.dispatch_events([Event()])
+
+        assert len(bottom_events) == 0
+
+    def test_events_discarded_on_empty_stack_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Discarded events on empty stack are logged at DEBUG level."""
+        stack = SceneStack()
+        with caplog.at_level(logging.DEBUG, logger="wyby.scene"):
+            stack.dispatch_events([Event(), Event()])
+
+        assert any("discarding 2 event(s)" in r.message for r in caplog.records)
+
+    def test_no_log_when_empty_stack_and_no_events(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """No discard log when stack is empty and events list is also empty."""
+        stack = SceneStack()
+        with caplog.at_level(logging.DEBUG, logger="wyby.scene"):
+            stack.dispatch_events([])
+
+        assert not any("discarding" in r.message for r in caplog.records)
+
+    def test_exception_in_handle_events_propagates(self) -> None:
+        """If handle_events raises, the exception propagates through dispatch."""
+        stack = SceneStack()
+
+        class CrashingScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                raise ValueError("boom")
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        stack.push(CrashingScene())
+        with pytest.raises(ValueError, match="boom"):
+            stack.dispatch_events([Event()])
+
+    def test_dispatch_after_pop_routes_to_new_top(self) -> None:
+        """After popping, dispatch routes to the new top scene."""
+        stack = SceneStack()
+        bottom_events: list[list[Event]] = []
+        top_events: list[list[Event]] = []
+
+        class BottomScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                bottom_events.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        class TopScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                top_events.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        stack.push(BottomScene())
+        stack.push(TopScene())
+        stack.pop()  # TopScene exits, BottomScene resumes
+
+        evt = Event()
+        stack.dispatch_events([evt])
+
+        assert len(bottom_events) == 1
+        assert bottom_events[0] == [evt]
+        assert len(top_events) == 0
+
+    def test_dispatch_after_replace_routes_to_new_scene(self) -> None:
+        """After replace, dispatch routes to the replacement scene."""
+        stack = SceneStack()
+        old_events: list[list[Event]] = []
+        new_events: list[list[Event]] = []
+
+        class OldScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                old_events.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        class NewScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                new_events.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        stack.push(OldScene())
+        stack.replace(NewScene())
+
+        evt = Event()
+        stack.dispatch_events([evt])
+
+        assert len(new_events) == 1
+        assert new_events[0] == [evt]
+        assert len(old_events) == 0

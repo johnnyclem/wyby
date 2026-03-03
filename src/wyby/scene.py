@@ -782,6 +782,73 @@ class SceneStack:
 
         return old_scene
 
+    def dispatch_events(self, events: list[Event]) -> bool:
+        """Route input events to the top scene on the stack.
+
+        This is the formal input routing entry point.  The engine calls
+        this once per tick (after draining the event queue, before update)
+        to deliver input to the active scene.
+
+        Only the **top** scene receives events.  Scenes below it — even
+        those with :attr:`~Scene.updates_when_paused` set to ``True`` —
+        do **not** see input.  If a paused scene needs to react to input,
+        route it explicitly via a shared context object, custom events
+        posted to the queue, or the :class:`~wyby.input_context.InputContextStack`.
+
+        Args:
+            events: A list of :class:`~wyby.event.Event` instances
+                drained from the :class:`~wyby.event.EventQueue` this
+                tick, in FIFO order.  May be empty.
+
+        Returns:
+            ``True`` if events were delivered to a scene, ``False`` if
+            the stack was empty and events were discarded.
+
+        Caveats:
+            - **Top-scene-only routing.**  This is a deliberate design
+              choice, not an oversight.  Routing input to multiple scenes
+              simultaneously creates ambiguity about which scene "owns" a
+              key press, leading to duplicate actions or swallowed input.
+              The scene stack's push/pop model means exactly one scene is
+              in focus at any time — the same model used by OS window
+              managers and mobile navigation stacks.
+            - **Events are passed by reference.**  The list is not copied
+              before delivery.  If the scene mutates the list (e.g.,
+              removes handled events), the caller sees those mutations.
+              The engine drains into a fresh list each tick, so this is
+              safe in practice, but custom callers should be aware.
+            - **No filtering or transformation.**  All event types
+              (``KeyEvent``, ``MouseEvent``, custom subclasses) are
+              delivered as a single batch.  Per-type routing is the
+              scene's responsibility — use ``isinstance`` checks or a
+              :class:`~wyby.keymap.KeyMap` to dispatch by type.
+            - **Empty event lists are delivered.**  When no events were
+              queued, the scene still receives an empty list.  This is
+              intentional — it lets scenes distinguish "no input this
+              tick" from "not receiving input at all" (which happens to
+              paused scenes that never get ``handle_events`` called).
+            - **Stack mutations during dispatch.**  If the scene's
+              ``handle_events()`` mutates the stack (push/pop/replace),
+              those changes take effect immediately.  This can cause the
+              *new* top scene's ``update()`` to run in the same tick.
+              Prefer setting a flag and performing transitions in
+              ``update()`` to avoid mid-tick surprises.
+            - **Exceptions propagate.**  If ``handle_events()`` raises,
+              the exception propagates to the caller (typically
+              ``Engine._tick``).  The engine treats unhandled exceptions
+              as fatal and triggers shutdown.
+        """
+        top = self.peek()
+        if top is None:
+            if events:
+                _logger.debug(
+                    "dispatch_events: stack empty, discarding %d event(s)",
+                    len(events),
+                )
+            return False
+        top.handle_events(events)
+        return True
+
     def clear(self) -> None:
         """Remove all scenes from the stack.
 

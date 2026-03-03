@@ -1115,14 +1115,12 @@ class Engine:
                 self._event_queue.post(event)
         events = self._event_queue.drain()
 
-        # Deliver drained events to the active scene's handle_events()
-        # before update().  This lets scenes process input (key presses,
-        # mouse clicks, custom events) before advancing game state.
-        # If the scene stack is empty, events are discarded — there is
-        # no scene to receive them.
-        scene = self._scene_stack.peek()
-        if scene is not None:
-            scene.handle_events(events)
+        # Route drained events to the active (top) scene via the
+        # SceneStack's dispatch_events() method.  Only the top scene
+        # receives input — paused scenes never see events, even if they
+        # update via updates_when_paused.  If the stack is empty, events
+        # are discarded (logged at DEBUG level by dispatch_events).
+        self._scene_stack.dispatch_events(events)
 
         # -- Phase 2: Update --
         # Snapshot the scenes that should update this tick.  The top
