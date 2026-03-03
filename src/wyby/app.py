@@ -110,8 +110,9 @@ from typing import TYPE_CHECKING
 from wyby._logging import configure_logging
 from wyby.diagnostics import FPSCounter
 from wyby.event import EventQueue
+from wyby.grid import CellBuffer
 from wyby.input import InputManager
-from wyby.renderer import LiveDisplay, create_console
+from wyby.renderer import LiveDisplay, Renderer, create_console
 from wyby.scene import Scene, SceneStack
 from wyby.signal_handlers import SignalHandler
 
@@ -173,27 +174,18 @@ _SLEEP_THRESHOLD = 0.001
 def _validate_title(title: object) -> str:
     """Validate and return the title, or raise TypeError/ValueError."""
     if not isinstance(title, str):
-        raise TypeError(
-            f"title must be a str, got {type(title).__name__}"
-        )
+        raise TypeError(f"title must be a str, got {type(title).__name__}")
     if not title.strip():
         raise ValueError("title must not be empty or blank")
     return title
 
 
-def _validate_int_field(
-    name: str, value: object, min_val: int, max_val: int
-) -> int:
+def _validate_int_field(name: str, value: object, min_val: int, max_val: int) -> int:
     """Validate an integer field with range bounds, or raise."""
     if not isinstance(value, int) or isinstance(value, bool):
-        raise TypeError(
-            f"{name} must be an int, got {type(value).__name__}"
-        )
+        raise TypeError(f"{name} must be an int, got {type(value).__name__}")
     if not (min_val <= value <= max_val):
-        raise ValueError(
-            f"{name} must be between {min_val} and {max_val}, "
-            f"got {value}"
-        )
+        raise ValueError(f"{name} must be between {min_val} and {max_val}, got {value}")
     return value
 
 
@@ -352,7 +344,7 @@ class Engine:
         "_event_queue",
         "_scene_stack",
         "_console",
-        "_live_display",
+        "_renderer",
         "_input_manager",
         "_signal_handler",
     )
@@ -378,8 +370,7 @@ class Engine:
             # use one style or the other, not both.
             if not isinstance(config, EngineConfig):
                 raise TypeError(
-                    f"config must be an EngineConfig, "
-                    f"got {type(config).__name__}"
+                    f"config must be an EngineConfig, got {type(config).__name__}"
                 )
             self._config = config
         else:
@@ -416,9 +407,7 @@ class Engine:
         # Reported FPS includes time spent sleeping between ticks, so at
         # low load it will closely match the target tps. Once the renderer
         # is wired up, a per-render measurement may provide finer detail.
-        self._fps_counter: FPSCounter | None = (
-            FPSCounter() if self._show_fps else None
-        )
+        self._fps_counter: FPSCounter | None = FPSCounter() if self._show_fps else None
 
         self._running = False
         self._tick_count: int = 0
@@ -434,14 +423,12 @@ class Engine:
         # (size, color capability, TTY detection).  Pass a custom
         # Console for testing or advanced configuration (e.g., forcing
         # a specific color system or writing to a StringIO buffer).
-        # Caveat: the Console is shared with the LiveDisplay.  Do not
-        # call console.print() directly while the LiveDisplay is
+        # Caveat: the Console is shared with the Renderer.  Do not
+        # call console.print() directly while the Renderer is
         # started — Rich's Live will conflict with direct writes,
         # causing display corruption.
-        self._console = (
-            console if console is not None else create_console()
-        )
-        self._live_display = LiveDisplay(console=self._console)
+        self._console = console if console is not None else create_console()
+        self._renderer = Renderer(console=self._console)
 
         # Optional InputManager for automatic input polling.
         # When provided, the engine takes ownership: it starts the
@@ -467,9 +454,7 @@ class Engine:
         #     passed to the Engine, the engine will not start it again
         #     (InputManager.start() is idempotent).  However, the
         #     engine will still stop it during shutdown.
-        if input_manager is not None and not isinstance(
-            input_manager, InputManager
-        ):
+        if input_manager is not None and not isinstance(input_manager, InputManager):
             raise TypeError(
                 f"input_manager must be an InputManager or None, "
                 f"got {type(input_manager).__name__}"
@@ -478,8 +463,7 @@ class Engine:
         self._signal_handler = SignalHandler()
 
         _logger.debug(
-            "Engine initialized: title=%r, width=%d, height=%d, "
-            "tps=%d, show_fps=%s",
+            "Engine initialized: title=%r, width=%d, height=%d, tps=%d, show_fps=%s",
             self._title,
             self._width,
             self._height,
@@ -568,22 +552,35 @@ class Engine:
     def live_display(self) -> LiveDisplay:
         """The :class:`LiveDisplay` for pushing frames to the terminal.
 
+        This is a convenience property that returns the underlying
+        :class:`~wyby.renderer.LiveDisplay` from the :attr:`renderer`.
         The display is created during engine initialization but is
-        **not** started automatically.  Call ``live_display.start()``
-        before pushing renderables, or use it as a context manager.
-        The engine's :meth:`_shutdown` method stops the display if
-        it was started, ensuring terminal state is restored on exit.
+        **not** started automatically until :meth:`run` is called.
 
         Caveats:
-            - The display is not started by :meth:`run`.  Starting
-              and managing the display lifecycle is the responsibility
-              of the game code or a higher-level Renderer class.
-            - If the display is started, it is stopped during
-              :meth:`_shutdown` (which runs on all exit paths from
-              :meth:`run`).  This ensures cursor visibility is
-              restored even if the game crashes.
+            - The display is started automatically by :meth:`run`.
+            - The engine stops the display during :meth:`_shutdown`
+              (which runs on all exit paths from :meth:`run`), ensuring
+              terminal state is restored on exit.
         """
-        return self._live_display
+        return self._renderer.live_display
+
+    @property
+    def renderer(self) -> Renderer:
+        """The :class:`Renderer` for pushing frames to the terminal.
+
+        The renderer manages the underlying Rich ``Live`` display and
+        provides methods for presenting renderables to the terminal.
+        The engine starts the renderer automatically when :meth:`run`
+        is called and stops it during shutdown.
+
+        Caveats:
+            - The renderer is started automatically by :meth:`run`.
+            - Scenes with a ``buffer`` attribute will have their buffer
+              automatically presented to the terminal after each
+              :meth:`~wyby.scene.Scene.render` call.
+        """
+        return self._renderer
 
     @property
     def input_manager(self) -> InputManager | None:
@@ -858,6 +855,12 @@ class Engine:
             if self._input_manager is not None:
                 self._input_manager.start()
 
+            # Start the Renderer to begin terminal output.  The renderer
+            # manages the underlying Rich Live display.  start() is
+            # idempotent, so calling it when already started is safe.
+            if self._renderer is not None:
+                self._renderer.start()
+
             if not loop:
                 # Single-tick mode: run one fixed-step update and return.
                 # No accumulator or sleep — this is for testing/debugging.
@@ -914,10 +917,7 @@ class Engine:
             # frame was slow, catching the simulation up to
             # wall-clock time.
             updates = 0
-            while (
-                self._accumulator >= self._target_dt
-                and self._running
-            ):
+            while self._accumulator >= self._target_dt and self._running:
                 self._tick()
                 self._accumulator -= self._target_dt
                 updates += 1
@@ -1023,7 +1023,7 @@ class Engine:
         self._event_queue.clear()
 
         # Terminal restoration block.  InputManager.stop() and
-        # LiveDisplay.stop() are the most critical cleanup operations
+        # Renderer.stop() are the most critical cleanup operations
         # because they restore the terminal to a usable state (cooked
         # mode, cursor visible).  Each is wrapped in its own
         # try/except so that a failure in one does not prevent the
@@ -1042,13 +1042,14 @@ class Engine:
                     exc_info=True,
                 )
 
-        try:
-            self._live_display.stop()
-        except Exception:
-            _logger.warning(
-                "Failed to stop LiveDisplay during shutdown",
-                exc_info=True,
-            )
+        if self._renderer is not None:
+            try:
+                self._renderer.stop()
+            except Exception:
+                _logger.warning(
+                    "Failed to stop Renderer during shutdown",
+                    exc_info=True,
+                )
 
         _logger.debug("Engine shutdown complete")
 
@@ -1140,6 +1141,13 @@ class Engine:
         # render() must not modify game state.
         for s in self._scene_stack.scenes_to_render():
             s.render()
+            # After rendering, present the scene's buffer to the terminal
+            # if it has one.  This automatic wiring allows scenes to
+            # simply set self.buffer = CellBuffer(...) and have their
+            # output appear without manually calling the renderer.
+            if hasattr(s, "buffer") and isinstance(s.buffer, CellBuffer):
+                if self._renderer is not None:
+                    self._renderer.present(s.buffer)
 
         # -- FPS tracking --
         # Record the tick timestamp for FPS computation.  This is done

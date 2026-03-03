@@ -1,0 +1,20 @@
+Metadata-Version: 2.4
+Name: wyby
+Version: 0.1.0.dev0
+Summary: A Python framework for terminal-rendered 2D games
+License-Expression: GPL-3.0-only
+Requires-Python: >=3.10
+License-File: LICENSE
+Requires-Dist: rich>=13.0
+Provides-Extra: image
+Requires-Dist: Pillow>=9.0; extra == "image"
+Provides-Extra: svg
+Requires-Dist: cairosvg>=2.5; extra == "svg"
+Requires-Dist: Pillow>=9.0; extra == "svg"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0; extra == "dev"
+Requires-Dist: ruff>=0.4.0; extra == "dev"
+Requires-Dist: Pillow>=9.0; extra == "dev"
+Requires-Dist: cairosvg>=2.5; extra == "dev"
+Dynamic: license-file

@@ -126,9 +126,7 @@ class TestQuitSignal:
 class TestQuitSignalInEngine:
     """Engine should catch QuitSignal as a clean shutdown."""
 
-    def test_quit_signal_stops_loop(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_quit_signal_stops_loop(self, monkeypatch: pytest.MonkeyPatch) -> None:
         engine = Engine()
 
         def raise_quit(self_: Engine) -> None:
@@ -258,10 +256,7 @@ class TestShowFpsRepr:
 
     def test_repr_show_fps_format(self) -> None:
         engine = Engine(title="Snake", width=40, height=20, show_fps=True)
-        expected = (
-            "Engine(title='Snake', width=40, height=20, "
-            "tps=30, show_fps=True)"
-        )
+        expected = "Engine(title='Snake', width=40, height=20, tps=30, show_fps=True)"
         assert repr(engine) == expected
 
 
@@ -279,9 +274,7 @@ class TestEngineConsole:
 
     def test_custom_console_injection(self) -> None:
         """A custom Console passed at construction should be used."""
-        custom = create_console(
-            file=io.StringIO(), force_terminal=True
-        )
+        custom = create_console(file=io.StringIO(), force_terminal=True)
         engine = Engine(console=custom)
         assert engine.console is custom
 
@@ -342,7 +335,7 @@ class TestEngineLiveDisplay:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """If LiveDisplay.stop() raises, the error should be logged."""
+        """If Renderer.stop() raises (via LiveDisplay.stop()), the error should be logged."""
         engine = Engine()
 
         def exploding_stop(self_: LiveDisplay) -> None:
@@ -352,11 +345,8 @@ class TestEngineLiveDisplay:
         with caplog.at_level(logging.WARNING, logger="wyby.app"):
             engine.run(loop=False)
 
-        warnings = [
-            r.message for r in caplog.records
-            if r.levelno >= logging.WARNING
-        ]
-        assert any("LiveDisplay" in m for m in warnings)
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("Renderer" in m for m in warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -392,9 +382,7 @@ class TestEngineInputManager:
         mock_manager = MagicMock(spec=InputManager)
         mock_manager.poll.return_value = []
         # Bypass isinstance check by patching
-        monkeypatch.setattr(
-            "wyby.app.InputManager", lambda *a, **kw: mock_manager
-        )
+        monkeypatch.setattr("wyby.app.InputManager", lambda *a, **kw: mock_manager)
         engine = Engine()
         engine._input_manager = mock_manager
 
@@ -475,10 +463,7 @@ class TestEngineInputManager:
         with caplog.at_level(logging.WARNING, logger="wyby.app"):
             engine.run(loop=False)
 
-        warnings = [
-            r.message for r in caplog.records
-            if r.levelno >= logging.WARNING
-        ]
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any("InputManager" in m for m in warnings)
 
 
@@ -593,10 +578,7 @@ class TestEngineSignalHandler:
         with caplog.at_level(logging.WARNING, logger="wyby.app"):
             engine.run(loop=False)
 
-        warnings = [
-            r.message for r in caplog.records
-            if r.levelno >= logging.WARNING
-        ]
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any("signal" in m.lower() for m in warnings)
         # Engine should still complete its tick despite the warning.
         assert engine.tick_count == 1
@@ -669,9 +651,7 @@ class TestSleepThreshold:
             self_.stop()
 
         with patch.object(Engine, "_tick", stop_after_one):
-            with patch(
-                "wyby.app.time.monotonic", side_effect=mock_monotonic
-            ):
+            with patch("wyby.app.time.monotonic", side_effect=mock_monotonic):
                 with patch("wyby.app.time.sleep") as mock_sleep:
                     engine.run(loop=True)
 
@@ -706,8 +686,11 @@ class TestEngineReprCombined:
 
     def test_repr_both_debug_and_show_fps(self) -> None:
         engine = Engine(
-            title="Snake", width=40, height=20,
-            debug=True, show_fps=True,
+            title="Snake",
+            width=40,
+            height=20,
+            debug=True,
+            show_fps=True,
         )
         r = repr(engine)
         assert "debug=True" in r
