@@ -15,8 +15,11 @@ The three main exports are:
   so the game loop controls frame timing.
 - :class:`Renderer` — high-level rendering coordinator that wraps
   :class:`LiveDisplay` and provides a game-loop-friendly API for
-  pushing frames to the terminal.  This is the primary interface
-  that the :class:`~wyby.app.Engine` tick loop uses for output.
+  pushing frames to the terminal.  Supports registering
+  :class:`~wyby.widget.Widget` overlays that are automatically drawn
+  on top of :class:`~wyby.grid.CellBuffer` renderables during
+  :meth:`Renderer.present`.  This is the primary interface that the
+  :class:`~wyby.app.Engine` tick loop uses for output.
 
 Game code can use :class:`Renderer` directly, or drop down to
 :class:`LiveDisplay` and :func:`create_console` for custom rendering.
@@ -60,7 +63,9 @@ from rich.console import Console
 from rich.live import Live
 
 from wyby.diagnostics import RenderTimer
+from wyby.grid import CellBuffer
 from wyby.render_warnings import log_render_cost
+from wyby.widget import Widget
 
 if TYPE_CHECKING:
     from rich.console import RenderableType
@@ -351,6 +356,13 @@ class Renderer:
     :class:`~rich.console.Console`) and provides a :meth:`present`
     method for pushing renderables to the screen each tick.
 
+    **Overlay support.**  :class:`~wyby.widget.Widget` instances can be
+    registered as overlays via :meth:`add_overlay`.  When :meth:`present`
+    is called with a :class:`~wyby.grid.CellBuffer`, registered overlays
+    are automatically drawn on top of the buffer before it is sent to
+    the terminal.  This allows HUD elements (health bars, score labels,
+    mini-maps) to be managed separately from scene rendering.
+
     Typical usage from the engine's tick loop::
 
         renderer = Renderer(console)
@@ -361,6 +373,17 @@ class Renderer:
             renderer.present(renderable)
         finally:
             renderer.stop()
+
+    With overlays::
+
+        renderer = Renderer(console)
+        hud = HealthBar(x=0, y=0, width=20, current=75, maximum=100)
+        renderer.add_overlay(hud)
+
+        with renderer:
+            buf = CellBuffer(80, 24)
+            buf.fill(Cell(char="."))
+            renderer.present(buf)  # HealthBar drawn automatically
 
     Or as a context manager::
 
@@ -427,7 +450,7 @@ class Renderer:
           in their rendering logic.
     """
 
-    __slots__ = ("_live_display", "_frame_count", "_render_timer")
+    __slots__ = ("_live_display", "_frame_count", "_render_timer", "_overlays")
 
     def __init__(self, console: Console | None = None) -> None:
         if console is not None and not isinstance(console, Console):
@@ -440,6 +463,7 @@ class Renderer:
         self._live_display = LiveDisplay(console=console)
         self._frame_count: int = 0
         self._render_timer = RenderTimer()
+        self._overlays: list[Widget] = []
 
     @property
     def console(self) -> Console:
@@ -495,6 +519,113 @@ class Renderer:
               true render latency.
         """
         return self._render_timer
+
+    # -- Overlay management -------------------------------------------------
+
+    @property
+    def overlays(self) -> list[Widget]:
+        """Read-only copy of registered overlay widgets.
+
+        Overlays are drawn in list order during :meth:`present`: the
+        first overlay registered is drawn first (visually behind later
+        overlays).  This matches the existing convention that draw-order
+        determines visual stacking.
+
+        Returns a shallow copy to prevent external mutation.  Use
+        :meth:`add_overlay` and :meth:`remove_overlay` to modify the
+        list.
+
+        Caveat:
+            Returns a **copy** every call.  In tight loops, cache the
+            result or use :attr:`overlay_count` for length checks.
+        """
+        return list(self._overlays)
+
+    @property
+    def overlay_count(self) -> int:
+        """Number of currently registered overlays."""
+        return len(self._overlays)
+
+    def add_overlay(self, widget: Widget) -> None:
+        """Register a widget to be drawn as an overlay on each :meth:`present` call.
+
+        Overlays are drawn in registration order on top of any
+        :class:`~wyby.grid.CellBuffer` renderable passed to
+        :meth:`present`.  Only visible overlays (``widget.visible is
+        True``) are drawn; hidden overlays remain registered but are
+        skipped.
+
+        Adding a widget that is already registered is a no-op.
+
+        Args:
+            widget: A :class:`~wyby.widget.Widget` instance to draw as
+                an overlay.
+
+        Raises:
+            TypeError: If *widget* is not a :class:`~wyby.widget.Widget`
+                instance.
+
+        Caveats:
+            - Overlays are only composited when the renderable passed to
+              :meth:`present` is a :class:`~wyby.grid.CellBuffer`.  For
+              other renderable types (plain strings, Rich ``Text``,
+              ``Table``, etc.) overlays are silently skipped because
+              there is no cell buffer to draw into.
+            - Overlays are drawn **directly into the CellBuffer** passed
+              to :meth:`present`.  This mutates the caller's buffer.
+              Since game loops typically clear and rebuild the buffer
+              each frame, this is acceptable.  If the caller needs the
+              buffer unmodified after ``present()``, pass a copy.
+            - There is no automatic z-ordering.  Overlays are drawn in
+              registration order.  To change stacking, remove and
+              re-add overlays in the desired order.
+            - Overlays persist across :meth:`start` / :meth:`stop`
+              cycles.  Call :meth:`clear_overlays` to remove them.
+            - Overlay widgets are not owned by the renderer.  The
+              caller is responsible for the widget's lifecycle (updating
+              position, size, visibility, and content each frame).
+        """
+        if not isinstance(widget, Widget):
+            raise TypeError(
+                f"widget must be a Widget, got {type(widget).__name__}"
+            )
+        if widget in self._overlays:
+            return
+        self._overlays.append(widget)
+        _logger.debug(
+            "Overlay added: %r (total: %d)", widget, len(self._overlays)
+        )
+
+    def remove_overlay(self, widget: Widget) -> None:
+        """Remove a previously registered overlay widget.
+
+        Args:
+            widget: The widget to remove.
+
+        Raises:
+            ValueError: If *widget* is not currently registered as an
+                overlay.
+        """
+        try:
+            self._overlays.remove(widget)
+        except ValueError:
+            raise ValueError(
+                f"{widget!r} is not a registered overlay"
+            ) from None
+        _logger.debug(
+            "Overlay removed: %r (total: %d)", widget, len(self._overlays)
+        )
+
+    def clear_overlays(self) -> None:
+        """Remove all registered overlay widgets.
+
+        After this call, :meth:`present` will not draw any overlays
+        until new ones are registered via :meth:`add_overlay`.
+        """
+        count = len(self._overlays)
+        self._overlays.clear()
+        if count:
+            _logger.debug("Cleared %d overlays", count)
 
     def start(self) -> None:
         """Start the renderer and prepare for frame output.
@@ -586,6 +717,12 @@ class Renderer:
         method that the game loop calls once per tick after the
         active scene has prepared its visual output.
 
+        If overlay widgets are registered (via :meth:`add_overlay`),
+        they are drawn on top of the renderable before it is sent to
+        the terminal.  Overlays are only applied when *renderable* is
+        a :class:`~wyby.grid.CellBuffer` — for other renderable types,
+        overlays are silently skipped.
+
         Args:
             renderable: Any Rich renderable — :class:`~rich.text.Text`,
                 :class:`~rich.table.Table`, :class:`~rich.panel.Panel`,
@@ -611,9 +748,37 @@ class Renderer:
               :class:`~wyby.diagnostics.FPSCounter` to measure actual
               throughput at runtime.  See
               ``docs/rendering_performance.md`` for mitigation advice.
+            - **Overlay mutation.**  When overlays are registered and
+              *renderable* is a :class:`~wyby.grid.CellBuffer`, the
+              overlays draw directly into the buffer, mutating it.
+              Since game loops typically clear and rebuild the buffer
+              each frame, this is acceptable.  If the caller needs the
+              buffer unmodified after ``present()``, pass a copy.
+            - **Overlay skip for non-CellBuffer.**  Overlays are only
+              composited onto :class:`~wyby.grid.CellBuffer` instances.
+              If a plain string or other Rich renderable is passed,
+              registered overlays are silently skipped — there is no
+              cell buffer to draw into.  Use a CellBuffer if you need
+              overlay support.
         """
         if not self._live_display.is_started:
             return
+
+        # Draw registered overlays into CellBuffer renderables.
+        # Overlays are drawn in registration order — later overlays
+        # appear on top of earlier ones.  Only visible overlays are
+        # drawn; hidden ones (visible=False) are skipped.
+        #
+        # Caveat: this mutates the caller's CellBuffer.  Game loops
+        # typically clear and rebuild the buffer each frame, so this
+        # is safe in normal usage.  For non-CellBuffer renderables
+        # (strings, Rich Text, etc.), overlays are silently skipped
+        # because Widget.draw() requires a CellBuffer target.
+        if self._overlays and isinstance(renderable, CellBuffer):
+            for overlay in self._overlays:
+                if overlay.visible:
+                    overlay.draw(renderable)
+
         # Time the render call (Rich serialisation + terminal write).
         # Uses time.perf_counter() for sub-ms resolution.  Note: this
         # measures Python-side wall-clock time only — terminal-side
@@ -641,5 +806,6 @@ class Renderer:
         return (
             f"Renderer(started={self.is_started}, "
             f"frame_count={self._frame_count}, "
+            f"overlays={len(self._overlays)}, "
             f"console={self.console!r})"
         )
