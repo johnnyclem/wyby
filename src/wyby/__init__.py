@@ -41,6 +41,7 @@ from wyby.color import (
     nearest_ansi256,
     parse_color,
 )
+from wyby.component import Component
 from wyby.entity import Entity
 from wyby.diagnostics import (
     ColorSupport,
@@ -110,6 +111,7 @@ __all__ = [
     "Cell",
     "CellBuffer",
     "clip_to_terminal",
+    "Component",
     "ColorSupport",
     "Engine",
     "EngineConfig",
