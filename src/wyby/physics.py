@@ -60,6 +60,50 @@ from wyby.entity import Entity
 from wyby.position import Position
 from wyby.velocity import Velocity
 
+# ---------------------------------------------------------------------------
+# Physics scope documentation
+# ---------------------------------------------------------------------------
+
+#: Human-readable summary of what wyby provides and does not provide for
+#: physics.  Importable as ``wyby.PHYSICS_SCOPE`` for programmatic access
+#: (e.g. displaying to users or including in --help output).
+#:
+#: wyby is NOT a physics engine.  The helpers in this module are thin
+#: convenience wrappers over explicit per-entity loops.  They exist to
+#: reduce boilerplate, not to simulate physics accurately.
+PHYSICS_SCOPE: str = """\
+wyby does NOT include a physics engine.
+
+What wyby provides:
+  - Position component     — float x/y coordinates (no constraints, no bounds)
+  - Velocity component     — constant-speed movement in cells/sec (no forces)
+  - update_velocities()    — batch Euler integration: v += gravity*dt,
+                             v *= friction**dt, pos += v*dt
+  - sync_positions()       — snap float Position to integer Entity.x/y
+  - AABB collision         — overlap test for axis-aligned bounding boxes
+  - TileMap collision      — point/region solid queries on a boolean grid
+
+What wyby does NOT provide:
+  - Continuous collision detection (tunnelling through thin walls is possible)
+  - Collision response (separation, bouncing, sliding — game's responsibility)
+  - Rigid-body dynamics, joints, constraints, or contact solvers
+  - Spatial indexing (broad-phase acceleration structures)
+  - Verlet or RK4 integration (Euler only, error accumulates at large dt)
+  - Rotational physics, angular velocity, or torque
+  - Mass, density, restitution, or material properties
+
+Design rationale:
+  Terminal games typically involve tens to hundreds of entities on a
+  character-cell grid.  At this scale, explicit game-loop code that calls
+  update_velocities(), checks collisions, and applies response is simpler
+  and more debuggable than a general-purpose physics engine.  The helpers
+  here eliminate the boilerplate (iterating entities, skipping dead ones,
+  applying dt) without hiding the control flow.
+
+  If your game needs real physics, use a dedicated library (e.g. pymunk,
+  Box2D via pybox2d) for simulation and wyby only for rendering.
+"""
+
 
 def update_velocities(
     entities: Iterable[Entity],
