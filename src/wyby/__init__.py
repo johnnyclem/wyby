@@ -53,6 +53,14 @@ from wyby.dithering import (
 from wyby.entity import Entity
 from wyby.position import Position
 from wyby.sprite import Sprite, from_image, from_text
+from wyby.transforms import (
+    flip_h,
+    flip_v,
+    rotate_90,
+    rotate_180,
+    rotate_270,
+    tint,
+)
 from wyby.velocity import Velocity
 from wyby.diagnostics import (
     ColorSupport,
@@ -202,6 +210,12 @@ __all__ = [
     "SlideTransition",
     "Transition",
     "Velocity",
+    "flip_h",
+    "flip_v",
+    "rotate_90",
+    "rotate_180",
+    "rotate_270",
+    "tint",
     "TERMINAL_CAVEATS",
     "TestCard",
     "build_test_card",
