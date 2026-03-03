@@ -70,6 +70,12 @@ from wyby.render_warnings import (
 from wyby.renderer import LiveDisplay, Renderer, create_console
 from wyby.resize import ResizeHandler, get_terminal_size
 from wyby.scene import Scene, SceneStack
+from wyby.terminal_test import (
+    TERMINAL_CAVEATS,
+    TestCard,
+    build_test_card,
+    format_report,
+)
 
 # Attach a NullHandler so that wyby's internal log messages are silently
 # discarded unless the application (game) configures logging. This follows
@@ -127,4 +133,8 @@ __all__ = [
     "parse_color",
     "show_cursor",
     "string_width",
+    "TERMINAL_CAVEATS",
+    "TestCard",
+    "build_test_card",
+    "format_report",
 ]
