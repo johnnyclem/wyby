@@ -1,10 +1,11 @@
-"""Utilities for initializing a wyby game project with git, .gitignore, pyproject.toml, pre-commit config, LICENSE, and CONTRIBUTING.md.
+"""Utilities for initializing a wyby game project with git, .gitignore, pyproject.toml, pre-commit config, LICENSE, CONTRIBUTING.md, and .env.example.
 
 This module provides functions to scaffold a new wyby game project directory
 with a git repository, a .gitignore tailored for Python-based terminal
 game development, a ``pyproject.toml`` declaring the project's metadata
 and dependencies, a ``.pre-commit-config.yaml`` for code-quality hooks,
-an MIT ``LICENSE`` file, and a ``CONTRIBUTING.md`` guide.
+an MIT ``LICENSE`` file, a ``CONTRIBUTING.md`` guide, and a
+``.env.example`` file documenting available development flags.
 
 Caveats:
     - Requires ``git`` to be installed and available on the system PATH.
@@ -57,6 +58,15 @@ Caveats:
       status. Game projects with specialised contribution workflows
       (e.g. asset pipelines, playtesting protocols) should extend the
       file to cover those areas.
+    - The generated ``.env.example`` documents environment variables
+      that control wyby's development and debugging behaviour (log level,
+      debug mode, FPS cap, save directory). It is a **template** — the
+      actual ``.env`` file is gitignored and must be created by each
+      developer by copying ``.env.example``. The ``.env.example`` file
+      itself **must not** contain real secrets or credentials; it only
+      holds placeholder/default values. wyby does not automatically read
+      ``.env`` files at runtime — games must load them explicitly (e.g.
+      via ``python-dotenv``) or export the variables in the shell.
 """
 
 from __future__ import annotations
@@ -346,6 +356,78 @@ ruff format src/ tests/
 - **No networking in MVP.** wyby's first release will not include
   networking support. Contributions that add multiplayer or online
   features should be discussed in an issue first.
+"""
+
+
+# .env.example template for wyby game projects.
+#
+# Caveats:
+# - This file is a TEMPLATE. It documents available environment variables
+#   with safe default values. Developers copy it to `.env` (which is
+#   gitignored) and customise as needed.
+# - wyby does NOT automatically read `.env` files at runtime. Games must
+#   load them explicitly (e.g. with `python-dotenv`) or export the
+#   variables in their shell before running.
+# - NEVER put real secrets, API keys, or credentials in `.env.example`.
+#   It is checked into version control and visible to everyone.
+# - Variable names use the WYBY_ prefix to avoid collisions with other
+#   tools. Game-specific variables should use a different prefix
+#   (e.g. MYGAME_) to maintain clear namespacing.
+# - The variables listed here correspond to planned wyby features. Some
+#   may not be read by the framework yet (wyby is pre-release). They are
+#   documented here so that game projects have a consistent pattern to
+#   follow as the framework matures.
+ENV_EXAMPLE_TEMPLATE = """\
+# wyby development environment flags.
+#
+# Copy this file to `.env` and adjust values for your local setup.
+# The `.env` file is gitignored — do NOT commit it.
+#
+# IMPORTANT: wyby does not auto-load .env files. Either:
+#   - export these variables in your shell, or
+#   - use python-dotenv (pip install python-dotenv) in your game's entry point:
+#       from dotenv import load_dotenv; load_dotenv()
+#
+# NEVER put real secrets or credentials in .env.example — this file
+# is checked into version control.
+
+# --- Logging ---
+# Log level for the wyby logger hierarchy.
+# Values: DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Default: WARNING
+# Caveat: This only takes effect if your game calls wyby.configure_logging()
+# or reads this variable and passes it to the logging setup. wyby's library
+# logger emits nothing by default (NullHandler).
+WYBY_LOG_LEVEL=WARNING
+
+# Optional log file path. When set, wyby.configure_logging() can direct
+# output here instead of stderr. Relative paths resolve from the working
+# directory. The directory must already exist.
+# Caveat: Log files can grow indefinitely during long sessions. The
+# generated .gitignore already excludes *.log files.
+# WYBY_LOG_FILE=
+
+# --- Debug / diagnostics ---
+# Enable debug mode. When "1" or "true", games can enable extra diagnostics
+# (e.g. FPS overlay, grid-coordinate display, entity bounding boxes).
+# Caveat: Debug mode is advisory — it is up to each game to check this
+# variable and act on it. wyby itself does not change behaviour based on
+# this flag until the diagnostics module is implemented.
+WYBY_DEBUG=0
+
+# --- Rendering ---
+# Target frames per second for the game loop.
+# Caveat: This is a *cap*, not a guarantee. Actual FPS depends on terminal
+# emulator, grid size, and style complexity. See SCOPE.md for realistic
+# expectations (15-30 FPS on modern terminals).
+WYBY_FPS=30
+
+# --- Save / load ---
+# Directory for save-game files (JSON or msgpack).
+# Default: ./saves/
+# Caveat: wyby does not use pickle for serialisation. Games must implement
+# explicit to_save_data()/from_save_data() methods. See SCOPE.md.
+WYBY_SAVE_DIR=saves/
 """
 
 
@@ -708,6 +790,54 @@ def create_contributing_md(
     return contributing_path
 
 
+def create_env_example(
+    path: str | Path,
+    *,
+    overwrite: bool = False,
+) -> Path:
+    """Write a ``.env.example`` file documenting dev flags for a wyby game project.
+
+    The template lists environment variables that control logging, debug
+    mode, rendering, and save behaviour. Developers copy this file to
+    ``.env`` (which is gitignored) and adjust values for their local setup.
+
+    Args:
+        path: Directory in which to create the ``.env.example`` file.
+        overwrite: If ``True``, replace an existing ``.env.example``.
+            Defaults to ``False`` to avoid discarding user customisations.
+
+    Returns:
+        The ``Path`` of the written ``.env.example`` file.
+
+    Raises:
+        FileExistsError: If ``.env.example`` already exists and
+            *overwrite* is ``False``.
+
+    Caveats:
+        - The ``.env.example`` is a **template** checked into version
+          control. It must never contain real secrets or credentials.
+        - wyby does not auto-load ``.env`` files. Games must load them
+          explicitly (e.g. via ``python-dotenv``) or export the variables
+          in the shell before running.
+        - Some variables correspond to planned features that are not yet
+          implemented. They are documented here so that projects have a
+          consistent pattern to follow as the framework matures.
+    """
+    target_dir = Path(path).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    env_example_path = target_dir / ".env.example"
+
+    if env_example_path.exists() and not overwrite:
+        raise FileExistsError(
+            f".env.example already exists at {env_example_path}. "
+            "Pass overwrite=True to replace it."
+        )
+
+    env_example_path.write_text(ENV_EXAMPLE_TEMPLATE, encoding="utf-8")
+    logger.info("Created .env.example at %s", env_example_path)
+    return env_example_path
+
+
 def init_project(
     path: str | Path,
     project_name: str | None = None,
@@ -718,13 +848,15 @@ def init_project(
     overwrite_precommit: bool = False,
     overwrite_license: bool = False,
     overwrite_contributing: bool = False,
+    overwrite_env_example: bool = False,
 ) -> Path:
-    """Initialise a wyby game project with git, ``.gitignore``, ``pyproject.toml``, pre-commit config, LICENSE, and CONTRIBUTING.md.
+    """Initialise a wyby game project with git, ``.gitignore``, ``pyproject.toml``, pre-commit config, LICENSE, CONTRIBUTING.md, and ``.env.example``.
 
     This is a convenience wrapper that calls :func:`init_git_repo`,
     :func:`create_gitignore`, :func:`create_pyproject_toml`,
-    :func:`create_precommit_config`, :func:`create_license_file`, and
-    :func:`create_contributing_md` in sequence.
+    :func:`create_precommit_config`, :func:`create_license_file`,
+    :func:`create_contributing_md`, and :func:`create_env_example`
+    in sequence.
 
     Args:
         path: Directory for the new project.
@@ -736,6 +868,7 @@ def init_project(
         overwrite_precommit: Passed through to :func:`create_precommit_config`.
         overwrite_license: Passed through to :func:`create_license_file`.
         overwrite_contributing: Passed through to :func:`create_contributing_md`.
+        overwrite_env_example: Passed through to :func:`create_env_example`.
 
     Returns:
         The resolved ``Path`` of the project directory.
@@ -744,9 +877,9 @@ def init_project(
         GitNotFoundError: If git is not available.
         GitError: If ``git init`` fails.
         FileExistsError: If ``.gitignore``, ``pyproject.toml``,
-            ``.pre-commit-config.yaml``, ``LICENSE``, or
-            ``CONTRIBUTING.md`` exists and the corresponding
-            *overwrite_** flag is ``False``.
+            ``.pre-commit-config.yaml``, ``LICENSE``,
+            ``CONTRIBUTING.md``, or ``.env.example`` exists and the
+            corresponding *overwrite_** flag is ``False``.
         ValueError: If *project_name* (or the inferred directory name)
             is not a valid PEP 508 project name.
     """
@@ -765,6 +898,8 @@ def init_project(
     )
 
     create_contributing_md(repo_path, name, overwrite=overwrite_contributing)
+
+    create_env_example(repo_path, overwrite=overwrite_env_example)
 
     logger.info("Initialised wyby project at %s", repo_path)
     return repo_path

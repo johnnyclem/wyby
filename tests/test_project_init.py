@@ -1,4 +1,4 @@
-"""Tests for wyby.project_init — git, .gitignore, pyproject.toml, pre-commit config, LICENSE, and CONTRIBUTING.md initialisation."""
+"""Tests for wyby.project_init — git, .gitignore, pyproject.toml, pre-commit config, LICENSE, CONTRIBUTING.md, and .env.example initialisation."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import pytest
 
 from wyby.project_init import (
     CONTRIBUTING_TEMPLATE,
+    ENV_EXAMPLE_TEMPLATE,
     GITIGNORE_TEMPLATE,
     MIT_LICENSE_TEMPLATE,
     PRECOMMIT_CONFIG_TEMPLATE,
@@ -18,6 +19,7 @@ from wyby.project_init import (
     GitNotFoundError,
     _normalise_project_name,
     create_contributing_md,
+    create_env_example,
     create_gitignore,
     create_license_file,
     create_precommit_config,
@@ -717,6 +719,96 @@ class TestCreateContributingMd:
 
 
 # ---------------------------------------------------------------------------
+# create_env_example
+# ---------------------------------------------------------------------------
+
+
+class TestCreateEnvExample:
+    """Tests for create_env_example()."""
+
+    def test_creates_file_in_existing_dir(self, tmp_path: Path) -> None:
+        result = create_env_example(tmp_path)
+        env_example_path = tmp_path / ".env.example"
+
+        assert result == env_example_path
+        assert env_example_path.exists()
+
+    def test_content_matches_template(self, tmp_path: Path) -> None:
+        create_env_example(tmp_path)
+        content = (tmp_path / ".env.example").read_text(encoding="utf-8")
+
+        assert content == ENV_EXAMPLE_TEMPLATE
+
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        target = tmp_path / "x" / "y"
+        result = create_env_example(target)
+
+        assert result.exists()
+        assert target.is_dir()
+
+    def test_refuses_to_overwrite_by_default(self, tmp_path: Path) -> None:
+        (tmp_path / ".env.example").write_text("custom content")
+
+        with pytest.raises(FileExistsError, match="already exists"):
+            create_env_example(tmp_path)
+
+    def test_existing_content_preserved_when_not_overwriting(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".env.example").write_text("custom content")
+
+        with pytest.raises(FileExistsError):
+            create_env_example(tmp_path)
+
+        assert (tmp_path / ".env.example").read_text() == "custom content"
+
+    def test_overwrite_replaces_content(self, tmp_path: Path) -> None:
+        (tmp_path / ".env.example").write_text("old content")
+        create_env_example(tmp_path, overwrite=True)
+
+        content = (tmp_path / ".env.example").read_text(encoding="utf-8")
+        assert content == ENV_EXAMPLE_TEMPLATE
+
+    def test_template_includes_log_level(self) -> None:
+        assert "WYBY_LOG_LEVEL" in ENV_EXAMPLE_TEMPLATE
+
+    def test_template_includes_debug_flag(self) -> None:
+        assert "WYBY_DEBUG" in ENV_EXAMPLE_TEMPLATE
+
+    def test_template_includes_fps_setting(self) -> None:
+        assert "WYBY_FPS" in ENV_EXAMPLE_TEMPLATE
+
+    def test_template_includes_save_dir(self) -> None:
+        assert "WYBY_SAVE_DIR" in ENV_EXAMPLE_TEMPLATE
+
+    def test_template_warns_no_auto_load(self) -> None:
+        """The template should warn that wyby does not auto-load .env files."""
+        assert "does not auto-load" in ENV_EXAMPLE_TEMPLATE
+
+    def test_template_warns_no_secrets(self) -> None:
+        """The template should warn against putting secrets in .env.example."""
+        assert "NEVER put real secrets" in ENV_EXAMPLE_TEMPLATE
+
+    def test_template_mentions_dotenv_setup(self) -> None:
+        """The template should mention python-dotenv as one way to load the file."""
+        assert "python-dotenv" in ENV_EXAMPLE_TEMPLATE
+
+    def test_template_includes_caveat_comments(self) -> None:
+        """The template should include caveats about features not yet implemented."""
+        assert "Caveat" in ENV_EXAMPLE_TEMPLATE
+
+    def test_logs_info_on_success(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        with caplog.at_level(logging.INFO):
+            create_env_example(tmp_path)
+
+        assert any("Created .env.example" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
 # init_project
 # ---------------------------------------------------------------------------
 
@@ -724,7 +816,7 @@ class TestCreateContributingMd:
 class TestInitProject:
     """Tests for init_project() — the convenience wrapper."""
 
-    def test_creates_repo_gitignore_pyproject_license_and_contributing(
+    def test_creates_repo_gitignore_pyproject_license_contributing_and_env_example(
         self, tmp_path: Path
     ) -> None:
         target = tmp_path / "game"
@@ -737,6 +829,7 @@ class TestInitProject:
         assert (target / ".pre-commit-config.yaml").exists()
         assert (target / "LICENSE").exists()
         assert (target / "CONTRIBUTING.md").exists()
+        assert (target / ".env.example").exists()
 
     def test_gitignore_has_correct_content(self, tmp_path: Path) -> None:
         target = tmp_path / "game"
@@ -884,6 +977,33 @@ class TestInitProject:
 
         content = (target / "CONTRIBUTING.md").read_text(encoding="utf-8")
         assert "# Contributing to game" in content
+
+    def test_env_example_has_correct_content(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target)
+
+        content = (target / ".env.example").read_text(encoding="utf-8")
+        assert content == ENV_EXAMPLE_TEMPLATE
+
+    def test_refuses_overwrite_env_example_by_default(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        target.mkdir()
+        subprocess.run(["git", "init", str(target)], check=True, capture_output=True)
+        (target / ".env.example").write_text("custom")
+
+        with pytest.raises(FileExistsError):
+            init_project(target)
+
+    def test_overwrite_env_example_flag(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        target.mkdir()
+        subprocess.run(["git", "init", str(target)], check=True, capture_output=True)
+        (target / ".env.example").write_text("custom")
+
+        init_project(target, overwrite_env_example=True)
+
+        content = (target / ".env.example").read_text(encoding="utf-8")
+        assert content == ENV_EXAMPLE_TEMPLATE
 
     def test_git_not_found_propagates(self, tmp_path: Path) -> None:
         with patch("wyby.project_init.shutil.which", return_value=None):
