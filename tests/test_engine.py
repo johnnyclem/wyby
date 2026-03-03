@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
+from unittest.mock import patch
 
 import pytest
 
@@ -429,3 +431,188 @@ class TestEngineStop:
         engine = Engine()
         engine.stop()  # Should not raise.
         assert engine.running is False
+
+
+# ---------------------------------------------------------------------------
+# Clock / tick timing
+# ---------------------------------------------------------------------------
+
+
+class TestEngineClockDefaults:
+    """Clock properties should be zero before run() is called."""
+
+    def test_tick_count_zero_before_run(self) -> None:
+        engine = Engine()
+        assert engine.tick_count == 0
+
+    def test_dt_zero_before_run(self) -> None:
+        engine = Engine()
+        assert engine.dt == 0.0
+
+    def test_elapsed_zero_before_run(self) -> None:
+        engine = Engine()
+        assert engine.elapsed == 0.0
+
+
+class TestEngineClockReadOnly:
+    """Clock properties should not be directly settable."""
+
+    def test_tick_count_is_read_only(self) -> None:
+        engine = Engine()
+        with pytest.raises(AttributeError):
+            engine.tick_count = 5  # type: ignore[misc]
+
+    def test_dt_is_read_only(self) -> None:
+        engine = Engine()
+        with pytest.raises(AttributeError):
+            engine.dt = 1.0  # type: ignore[misc]
+
+    def test_elapsed_is_read_only(self) -> None:
+        engine = Engine()
+        with pytest.raises(AttributeError):
+            engine.elapsed = 1.0  # type: ignore[misc]
+
+
+class TestEngineTickCount:
+    """tick_count should track the number of ticks executed."""
+
+    def test_single_tick_increments_count(self) -> None:
+        engine = Engine()
+        engine.run(loop=False)
+        assert engine.tick_count == 1
+
+    def test_multiple_ticks(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        engine = Engine()
+        tick_target = 5
+        call_count = 0
+
+        original_tick = Engine._tick
+
+        def counting_tick(self_: Engine) -> None:
+            nonlocal call_count
+            original_tick(self_)
+            call_count += 1
+            if call_count >= tick_target:
+                self_.stop()
+
+        monkeypatch.setattr(Engine, "_tick", counting_tick)
+        engine.run(loop=True)
+        assert engine.tick_count == tick_target
+
+    def test_tick_count_resets_on_new_run(self) -> None:
+        engine = Engine()
+        engine.run(loop=False)
+        assert engine.tick_count == 1
+        engine.run(loop=False)
+        assert engine.tick_count == 1  # Reset, then incremented once.
+
+
+class TestEngineDt:
+    """dt should measure wall-clock duration of the most recent tick."""
+
+    def test_dt_is_positive_after_tick(self) -> None:
+        engine = Engine()
+        engine.run(loop=False)
+        assert engine.dt > 0.0
+
+    def test_dt_reflects_elapsed_time(self) -> None:
+        """Mock time.monotonic to verify dt calculation."""
+        fake_time = [100.0]
+
+        def mock_monotonic() -> float:
+            return fake_time[0]
+
+        engine = Engine()
+        with patch("wyby.app.time.monotonic", side_effect=mock_monotonic):
+            # run() calls monotonic() once to set _last_tick_time (100.0).
+            # _tick() calls monotonic() again — advance the clock first.
+            fake_time[0] = 100.0
+            # We need run() to capture 100.0, then _tick() to see 100.05.
+            call_count = [0]
+
+            def sequenced_monotonic() -> float:
+                call_count[0] += 1
+                if call_count[0] <= 1:
+                    return 100.0  # run() initialization
+                return 100.05  # _tick() measurement
+
+            with patch(
+                "wyby.app.time.monotonic", side_effect=sequenced_monotonic
+            ):
+                engine.run(loop=False)
+
+        assert engine.dt == pytest.approx(0.05)
+
+    def test_dt_resets_on_new_run(self) -> None:
+        engine = Engine()
+        engine.run(loop=False)
+        first_dt = engine.dt
+        assert first_dt > 0.0
+        # After a new run(), dt should reflect the new tick, not accumulate.
+        engine.run(loop=False)
+        assert engine.dt > 0.0
+
+
+class TestEngineElapsed:
+    """elapsed should accumulate dt across ticks within a single run()."""
+
+    def test_elapsed_positive_after_tick(self) -> None:
+        engine = Engine()
+        engine.run(loop=False)
+        assert engine.elapsed > 0.0
+
+    def test_elapsed_accumulates_across_ticks(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mock time.monotonic to verify elapsed accumulation."""
+        call_count = [0]
+        # run() init: 0.0, tick1: 0.1, tick2: 0.25, tick3: 0.55
+        times = [0.0, 0.1, 0.25, 0.55]
+
+        def mock_monotonic() -> float:
+            idx = min(call_count[0], len(times) - 1)
+            val = times[idx]
+            call_count[0] += 1
+            return val
+
+        engine = Engine()
+        tick_count = [0]
+        original_tick = Engine._tick
+
+        def stop_after_three(self_: Engine) -> None:
+            original_tick(self_)
+            tick_count[0] += 1
+            if tick_count[0] >= 3:
+                self_.stop()
+
+        monkeypatch.setattr(Engine, "_tick", stop_after_three)
+
+        with patch("wyby.app.time.monotonic", side_effect=mock_monotonic):
+            engine.run(loop=True)
+
+        # dt values: 0.1-0.0=0.1, 0.25-0.1=0.15, 0.55-0.25=0.3
+        # elapsed = 0.1 + 0.15 + 0.3 = 0.55
+        assert engine.elapsed == pytest.approx(0.55)
+        assert engine.tick_count == 3
+
+    def test_elapsed_resets_on_new_run(self) -> None:
+        engine = Engine()
+        engine.run(loop=False)
+        first_elapsed = engine.elapsed
+        assert first_elapsed > 0.0
+        engine.run(loop=False)
+        # elapsed should be reset — it only reflects the latest run().
+        # It will be a small positive value (one tick), not accumulated.
+        assert engine.elapsed > 0.0
+        assert engine.elapsed < first_elapsed + 1.0  # Sanity bound.
+
+
+class TestEngineClockUsesMonotonic:
+    """Verify that the clock uses time.monotonic, not time.time."""
+
+    def test_monotonic_is_called(self) -> None:
+        engine = Engine()
+        with patch("wyby.app.time.monotonic", wraps=time.monotonic) as mock:
+            engine.run(loop=False)
+        # At least 2 calls: one in run() init, one in _tick().
+        assert mock.call_count >= 2

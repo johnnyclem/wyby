@@ -31,6 +31,7 @@ Caveats:
 from __future__ import annotations
 
 import logging
+import time
 
 _logger = logging.getLogger(__name__)
 
@@ -88,7 +89,16 @@ class Engine:
           the Linux virtual console).
     """
 
-    __slots__ = ("_title", "_width", "_height", "_running")
+    __slots__ = (
+        "_title",
+        "_width",
+        "_height",
+        "_running",
+        "_tick_count",
+        "_dt",
+        "_elapsed",
+        "_last_tick_time",
+    )
 
     def __init__(
         self,
@@ -127,6 +137,10 @@ class Engine:
         self._width = width
         self._height = height
         self._running = False
+        self._tick_count: int = 0
+        self._dt: float = 0.0
+        self._elapsed: float = 0.0
+        self._last_tick_time: float = 0.0
 
         _logger.debug(
             "Engine initialized: title=%r, width=%d, height=%d",
@@ -154,6 +168,48 @@ class Engine:
     def running(self) -> bool:
         """Whether the engine's game loop is currently executing."""
         return self._running
+
+    @property
+    def tick_count(self) -> int:
+        """Total number of ticks executed since the last ``run()`` call."""
+        return self._tick_count
+
+    @property
+    def dt(self) -> float:
+        """Wall-clock duration of the most recent tick, in seconds.
+
+        Uses ``time.monotonic()``, which is immune to system clock
+        adjustments (NTP, manual ``date`` changes, daylight-saving
+        transitions) but **not** to OS-level sleep or suspend.  If the
+        machine is suspended mid-game, the first tick after wake will
+        report a large ``dt`` that includes the suspend duration.  A
+        future fixed-timestep implementation should clamp ``dt`` to
+        avoid physics explosions after resume.
+
+        Returns 0.0 before the first tick completes.
+        """
+        return self._dt
+
+    @property
+    def elapsed(self) -> float:
+        """Cumulative wall-clock time spent ticking, in seconds.
+
+        This is the sum of every ``dt`` since ``run()`` was called — it
+        measures only time spent inside the tick loop, not wall-clock
+        time since construction.  Pauses or sleeps between ``run()``
+        calls are not counted.
+
+        Caveats:
+            - Accumulated floating-point drift is possible over very
+              long sessions (hours).  For a 30-tps game running 10
+              hours that's ~1 080 000 additions; IEEE 754 double
+              precision keeps ~15 significant digits, so drift stays
+              well below 1 ms.  If sub-microsecond accuracy matters
+              over marathon sessions, use ``tick_count`` and a known
+              fixed timestep instead.
+            - Reset to 0.0 each time ``run()`` is called.
+        """
+        return self._elapsed
 
     def run(self, *, loop: bool = True) -> None:
         """Start the engine's main loop.
@@ -186,6 +242,16 @@ class Engine:
             return
 
         self._running = True
+        self._tick_count = 0
+        self._dt = 0.0
+        self._elapsed = 0.0
+        # time.monotonic() is used rather than time.perf_counter() because
+        # monotonic is guaranteed never to go backwards (immune to NTP
+        # adjustments and system clock changes).  perf_counter offers
+        # higher resolution on some platforms but can theoretically jump
+        # on clock adjustment.  For a game loop where correctness matters
+        # more than nanosecond precision, monotonic is the safer choice.
+        self._last_tick_time = time.monotonic()
         _logger.debug("Engine.run() starting (loop=%s)", loop)
 
         try:
@@ -212,10 +278,17 @@ class Engine:
     def _tick(self) -> None:
         """Execute one iteration of the game loop.
 
-        Currently a no-op placeholder. Will eventually: drain input →
+        Measures wall-clock duration via ``time.monotonic()`` and updates
+        :attr:`dt`, :attr:`elapsed`, and :attr:`tick_count`.
+
+        Currently a no-op beyond timing. Will eventually: drain input →
         update active scene → render frame.
         """
-        # Placeholder — subsystems (input, scene, renderer) not yet wired.
+        now = time.monotonic()
+        self._dt = now - self._last_tick_time
+        self._last_tick_time = now
+        self._elapsed += self._dt
+        self._tick_count += 1
 
     def __repr__(self) -> str:
         return (
