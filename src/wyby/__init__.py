@@ -31,6 +31,7 @@ and ``renderer`` are functional.
 
 from wyby._logging import configure_logging, setup_null_handler
 from wyby.alt_screen import AltScreen, disable_alt_screen, enable_alt_screen
+from wyby.cursor import HiddenCursor, hide_cursor, is_cursor_hidden, show_cursor
 from wyby.app import Engine, EngineConfig, QuitSignal
 from wyby.color import (
     color_system_for_support,
@@ -77,6 +78,7 @@ setup_null_handler()
 
 __all__ = [
     "AltScreen",
+    "HiddenCursor",
     "Cell",
     "CellBuffer",
     "clip_to_terminal",
@@ -112,6 +114,8 @@ __all__ = [
     "enable_alt_screen",
     "estimate_render_cost",
     "get_terminal_size",
+    "hide_cursor",
+    "is_cursor_hidden",
     "is_wide_char",
     "iter_grapheme_clusters",
     "log_emoji_warning",
@@ -119,5 +123,6 @@ __all__ = [
     "nearest_ansi16",
     "nearest_ansi256",
     "parse_color",
+    "show_cursor",
     "string_width",
 ]
