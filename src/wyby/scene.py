@@ -1,18 +1,359 @@
 """Scene base class and scene stack management.
 
-This module will provide the ``Scene`` abstract base class and a
-``SceneStack`` that allows pushing, popping, and replacing scenes
+This module provides the :class:`Scene` abstract base class and a
+:class:`SceneStack` that allows pushing, popping, and replacing scenes
 (e.g., pushing a pause menu over gameplay).
 
 Caveats:
-    - **Not yet implemented.** This module is a placeholder establishing
-      the package structure. See SCOPE.md for the intended design.
     - Only the top scene on the stack receives input. Scenes below it
       may or may not render depending on configuration (e.g., a
-      transparent pause overlay vs. an opaque menu).
+      transparent pause overlay vs. an opaque menu). Rendering policy
+      is the game's responsibility — the stack only tracks ordering.
     - Scenes own their entities and state. There is no implicit global
       state shared between scenes. Cross-scene communication must be
-      done explicitly (e.g., via a shared context object).
+      done explicitly (e.g., via a shared context object passed to
+      scene constructors).
     - Scene transitions (push, pop, replace) are explicit. There is no
       automatic transition animation system in v0.1.
+    - The stack enforces a maximum depth (default 32) to catch runaway
+      push loops. This limit is intentionally generous — most games
+      need fewer than 10 stacked scenes. If you legitimately need more,
+      pass a higher ``max_depth`` to :class:`SceneStack`.
+    - :meth:`Scene.on_enter` and :meth:`Scene.on_exit` are called when
+      a scene becomes or ceases to be the active (top) scene. They are
+      **not** called when the scene is merely covered by another scene
+      pushed on top. Override :meth:`on_pause` and :meth:`on_resume`
+      for that case.
 """
+
+from __future__ import annotations
+
+import logging
+from abc import ABC, abstractmethod
+
+_logger = logging.getLogger(__name__)
+
+# Default maximum scene stack depth.  32 is generous — most games use
+# fewer than 10 levels (e.g., gameplay → pause → settings → confirm
+# dialog).  The limit exists to catch accidental infinite push loops,
+# not to constrain legitimate use.
+_DEFAULT_MAX_DEPTH = 32
+_MIN_MAX_DEPTH = 1
+_MAX_MAX_DEPTH = 256
+
+
+class Scene(ABC):
+    """Abstract base class for game scenes.
+
+    A scene is the primary organizational unit in wyby.  Each scene
+    owns its own state and entities.  The game engine maintains a stack
+    of scenes; only the top scene receives input and is guaranteed to
+    be updated and rendered each tick.
+
+    Subclasses must implement :meth:`update` and :meth:`render`.
+    Lifecycle hooks (:meth:`on_enter`, :meth:`on_exit`,
+    :meth:`on_pause`, :meth:`on_resume`) are optional and default
+    to no-ops.
+
+    Caveats:
+        - Scenes do **not** receive a reference to the engine or stack
+          automatically. If a scene needs to trigger transitions (e.g.,
+          push a pause menu), pass the engine or stack to the scene's
+          constructor or use a callback pattern.
+        - ``update`` and ``render`` are separate methods to allow the
+          engine to call them at different rates in the future (e.g.,
+          rendering at display refresh rate while updating at a fixed
+          timestep). In v0.1 they are called 1:1 each tick.
+    """
+
+    @abstractmethod
+    def update(self, dt: float) -> None:
+        """Advance the scene's game state by one fixed timestep.
+
+        Args:
+            dt: The fixed timestep duration in seconds (same as
+                ``Engine.target_dt``). Use this to scale velocities
+                and animations for deterministic behaviour.
+        """
+
+    @abstractmethod
+    def render(self) -> None:
+        """Render the scene's current state.
+
+        Called once per tick after :meth:`update`. The scene should
+        write its visual output to a cell buffer or Rich renderable.
+        The exact rendering mechanism will be defined when the renderer
+        module is implemented.
+
+        Caveats:
+            - This method must **not** modify game state. Rendering
+              should be a pure read of the scene's current state.
+            - The renderer is not yet implemented, so this method is
+              currently a no-op in practice. It exists to establish
+              the interface contract.
+        """
+
+    def on_enter(self) -> None:
+        """Called when this scene becomes the active (top) scene.
+
+        This is invoked when the scene is first pushed onto the stack,
+        or when it becomes the top scene again after the scene above it
+        is popped.
+
+        Override this to initialize resources, start music, etc.
+        """
+
+    def on_exit(self) -> None:
+        """Called when this scene is removed from the stack.
+
+        This is invoked when the scene is popped or replaced. Use it
+        to clean up resources that should not persist after the scene
+        is gone.
+
+        Caveats:
+            - ``on_exit`` is called **after** the scene is removed
+              from the stack, so ``SceneStack.peek()`` will already
+              return the new top scene (or ``None``).
+        """
+
+    def on_pause(self) -> None:
+        """Called when another scene is pushed on top of this one.
+
+        The scene is still on the stack but is no longer the active
+        scene. Override this to pause music, timers, etc.
+        """
+
+    def on_resume(self) -> None:
+        """Called when this scene becomes active again after being paused.
+
+        This happens when the scene above it is popped. Override this
+        to resume music, timers, etc.
+        """
+
+
+class SceneStack:
+    """A stack of :class:`Scene` instances with push, pop, and replace.
+
+    The stack follows last-in-first-out (LIFO) semantics. Only the
+    topmost scene is considered "active" — it receives input and is
+    updated/rendered by the engine each tick.
+
+    Args:
+        max_depth: Maximum number of scenes allowed on the stack.
+            Must be between 1 and 256. Defaults to 32.
+
+    Raises:
+        TypeError: If *max_depth* is not an integer.
+        ValueError: If *max_depth* is outside the allowed range.
+
+    Caveats:
+        - The stack does **not** own or manage scene lifetimes beyond
+          calling lifecycle hooks. Scenes are not garbage-collected
+          when popped — they remain alive as long as the caller holds
+          a reference.
+        - ``push`` and ``replace`` accept any :class:`Scene` subclass
+          instance. The stack does not enforce uniqueness — the same
+          scene instance can be pushed multiple times, though this is
+          rarely useful and may cause confusing lifecycle hook calls.
+        - All operations are synchronous and not thread-safe. The
+          scene stack should only be mutated from the engine's main
+          loop thread.
+    """
+
+    __slots__ = ("_stack", "_max_depth")
+
+    def __init__(self, max_depth: int = _DEFAULT_MAX_DEPTH) -> None:
+        if not isinstance(max_depth, int) or isinstance(max_depth, bool):
+            raise TypeError(
+                f"max_depth must be an int, got {type(max_depth).__name__}"
+            )
+        if not (_MIN_MAX_DEPTH <= max_depth <= _MAX_MAX_DEPTH):
+            raise ValueError(
+                f"max_depth must be between {_MIN_MAX_DEPTH} and "
+                f"{_MAX_MAX_DEPTH}, got {max_depth}"
+            )
+        self._stack: list[Scene] = []
+        self._max_depth = max_depth
+        _logger.debug("SceneStack created with max_depth=%d", max_depth)
+
+    @property
+    def max_depth(self) -> int:
+        """Maximum number of scenes allowed on the stack."""
+        return self._max_depth
+
+    def __len__(self) -> int:
+        """Return the number of scenes currently on the stack."""
+        return len(self._stack)
+
+    def __bool__(self) -> bool:
+        """Return ``True`` if the stack is non-empty."""
+        return len(self._stack) > 0
+
+    @property
+    def is_empty(self) -> bool:
+        """Whether the stack has no scenes."""
+        return len(self._stack) == 0
+
+    def peek(self) -> Scene | None:
+        """Return the top scene without removing it, or ``None`` if empty.
+
+        This is the scene that should receive input and be updated
+        each tick.
+        """
+        if self._stack:
+            return self._stack[-1]
+        return None
+
+    def push(self, scene: Scene) -> None:
+        """Push a scene onto the top of the stack.
+
+        If there is already a scene on top, its :meth:`Scene.on_pause`
+        hook is called before the new scene's :meth:`Scene.on_enter`.
+
+        Args:
+            scene: The scene to push.
+
+        Raises:
+            TypeError: If *scene* is not a :class:`Scene` instance.
+            RuntimeError: If the stack has reached ``max_depth``.
+
+        Caveats:
+            - Pushing the same scene instance that is already on the
+              stack is allowed but discouraged — it will receive
+              ``on_pause``/``on_enter`` calls that may cause confusing
+              state if not handled carefully.
+        """
+        if not isinstance(scene, Scene):
+            raise TypeError(
+                f"scene must be a Scene instance, got {type(scene).__name__}"
+            )
+        if len(self._stack) >= self._max_depth:
+            raise RuntimeError(
+                f"Scene stack depth limit reached ({self._max_depth}). "
+                f"This likely indicates a runaway push loop. If you "
+                f"legitimately need more scenes, increase max_depth."
+            )
+
+        # Pause the current top scene before pushing the new one.
+        current = self.peek()
+        if current is not None:
+            _logger.debug(
+                "Pausing scene %r (depth %d)", type(current).__name__, len(self._stack)
+            )
+            current.on_pause()
+
+        self._stack.append(scene)
+        _logger.debug(
+            "Pushed scene %r (depth now %d)",
+            type(scene).__name__,
+            len(self._stack),
+        )
+        scene.on_enter()
+
+    def pop(self) -> Scene:
+        """Remove and return the top scene from the stack.
+
+        The popped scene's :meth:`Scene.on_exit` is called. If there
+        is a scene beneath it, that scene's :meth:`Scene.on_resume`
+        is called (it becomes the new active scene).
+
+        Returns:
+            The scene that was removed.
+
+        Raises:
+            RuntimeError: If the stack is empty.
+        """
+        if not self._stack:
+            raise RuntimeError("Cannot pop from an empty scene stack")
+
+        scene = self._stack.pop()
+        _logger.debug(
+            "Popped scene %r (depth now %d)",
+            type(scene).__name__,
+            len(self._stack),
+        )
+        scene.on_exit()
+
+        # Resume the scene that is now on top (if any).
+        new_top = self.peek()
+        if new_top is not None:
+            _logger.debug(
+                "Resuming scene %r (depth %d)",
+                type(new_top).__name__,
+                len(self._stack),
+            )
+            new_top.on_resume()
+
+        return scene
+
+    def replace(self, scene: Scene) -> Scene:
+        """Replace the top scene with a new one.
+
+        This is equivalent to a pop followed by a push, but the
+        scene beneath the old top does **not** receive ``on_resume``
+        or ``on_pause`` calls — only the replaced scene gets
+        ``on_exit`` and the new scene gets ``on_enter``.
+
+        Args:
+            scene: The new scene to place on top.
+
+        Returns:
+            The scene that was replaced.
+
+        Raises:
+            TypeError: If *scene* is not a :class:`Scene` instance.
+            RuntimeError: If the stack is empty (nothing to replace).
+
+        Caveats:
+            - ``replace`` does not trigger ``on_pause``/``on_resume``
+              on the scene below the top. This is intentional — a
+              replace is a lateral transition, not a push/pop pair.
+              If you need those hooks, call ``pop`` then ``push``
+              explicitly.
+        """
+        if not isinstance(scene, Scene):
+            raise TypeError(
+                f"scene must be a Scene instance, got {type(scene).__name__}"
+            )
+        if not self._stack:
+            raise RuntimeError(
+                "Cannot replace on an empty scene stack"
+            )
+
+        old_scene = self._stack.pop()
+        _logger.debug(
+            "Replacing scene %r with %r (depth %d)",
+            type(old_scene).__name__,
+            type(scene).__name__,
+            len(self._stack) + 1,
+        )
+        old_scene.on_exit()
+
+        self._stack.append(scene)
+        scene.on_enter()
+
+        return old_scene
+
+    def clear(self) -> None:
+        """Remove all scenes from the stack.
+
+        Each scene's :meth:`Scene.on_exit` is called in top-to-bottom
+        order (the topmost scene exits first).
+
+        Caveats:
+            - No ``on_resume`` calls are made during clear — every
+              scene is exiting, so there is no scene that "resumes."
+        """
+        _logger.debug("Clearing scene stack (depth %d)", len(self._stack))
+        while self._stack:
+            scene = self._stack.pop()
+            _logger.debug(
+                "Clearing scene %r (depth now %d)",
+                type(scene).__name__,
+                len(self._stack),
+            )
+            scene.on_exit()
+
+    def __repr__(self) -> str:
+        scene_names = [type(s).__name__ for s in self._stack]
+        return f"SceneStack({scene_names!r}, max_depth={self._max_depth})"

@@ -25,11 +25,12 @@ Package structure::
         project_init.py  # Project scaffolding utilities
 
 Most modules above are stubs awaiting implementation. Currently only
-``project_init`` and ``_logging`` are functional.
+``project_init``, ``_logging``, ``app``, and ``scene`` are functional.
 """
 
 from wyby._logging import configure_logging, setup_null_handler
 from wyby.app import Engine
+from wyby.scene import Scene, SceneStack
 
 # Attach a NullHandler so that wyby's internal log messages are silently
 # discarded unless the application (game) configures logging. This follows
@@ -37,4 +38,4 @@ from wyby.app import Engine
 # https://docs.python.org/3/howto/logging.html#configuring-logging-for-a-library
 setup_null_handler()
 
-__all__ = ["Engine", "configure_logging"]
+__all__ = ["Engine", "Scene", "SceneStack", "configure_logging"]

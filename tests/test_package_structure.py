@@ -18,7 +18,6 @@ import wyby
 # _platform is internal (prefixed with _); the rest are public.
 EXPECTED_PUBLIC_MODULES = [
     "input",
-    "scene",
     "entity",
     "renderer",
     "grid",
@@ -35,6 +34,7 @@ EXPECTED_INTERNAL_MODULES = [
 EXPECTED_EXISTING_MODULES = [
     "app",
     "project_init",
+    "scene",
 ]
 
 ALL_EXPECTED_MODULES = (
