@@ -11,6 +11,7 @@ Package structure::
 
     wyby/
         __init__.py      # This file — package root
+        _logging.py      # Logging configuration (internal)
         app.py           # Application entry point, game loop
         input.py         # Keyboard input abstraction
         scene.py         # Scene base class, scene stack
@@ -24,5 +25,15 @@ Package structure::
         project_init.py  # Project scaffolding utilities
 
 Most modules above are stubs awaiting implementation. Currently only
-``project_init`` is functional.
+``project_init`` and ``_logging`` are functional.
 """
+
+from wyby._logging import configure_logging, setup_null_handler
+
+# Attach a NullHandler so that wyby's internal log messages are silently
+# discarded unless the application (game) configures logging. This follows
+# the Python library best practice:
+# https://docs.python.org/3/howto/logging.html#configuring-logging-for-a-library
+setup_null_handler()
+
+__all__ = ["configure_logging"]
