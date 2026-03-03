@@ -173,6 +173,14 @@ from wyby.example_runner import (
     check_example,
     format_check_results,
 )
+from wyby.example_platforms import (
+    PLATFORMS as EXAMPLE_PLATFORMS,
+    ExamplePlatformResult,
+    PlatformCaveat,
+    check_all_example_platforms,
+    check_example_platform,
+    format_platform_check_results,
+)
 
 # Attach a NullHandler so that wyby's internal log messages are silently
 # discarded unless the application (game) configures logging. This follows
@@ -333,4 +341,10 @@ __all__ = [
     "check_all_examples",
     "check_example",
     "format_check_results",
+    "EXAMPLE_PLATFORMS",
+    "ExamplePlatformResult",
+    "PlatformCaveat",
+    "check_all_example_platforms",
+    "check_example_platform",
+    "format_platform_check_results",
 ]
