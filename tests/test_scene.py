@@ -24,6 +24,7 @@ class DummyScene(Scene):
     """Minimal concrete Scene for testing lifecycle hooks."""
 
     def __init__(self, name: str = "dummy") -> None:
+        super().__init__()
         self.name = name
         self.calls: list[str] = []
 
@@ -705,3 +706,244 @@ class TestSceneImport:
         from wyby import SceneStack as StackFromInit
 
         assert StackFromInit is SceneStack
+
+
+# ---------------------------------------------------------------------------
+# Callback-based enter/exit hooks
+# ---------------------------------------------------------------------------
+
+
+class TestSceneEnterHooks:
+    """Callback-based on_enter hooks via add_enter_hook / remove_enter_hook."""
+
+    def test_add_enter_hook_fires_on_push(self) -> None:
+        stack = SceneStack()
+        scene = DummyScene()
+        log: list[str] = []
+        scene.add_enter_hook(lambda: log.append("hook_called"))
+        stack.push(scene)
+        assert "hook_called" in log
+
+    def test_enter_hook_fires_after_on_enter(self) -> None:
+        """Registered callbacks fire after the overridden on_enter."""
+        stack = SceneStack()
+        scene = DummyScene()
+        order: list[str] = []
+        scene.add_enter_hook(lambda: order.append("hook"))
+        # DummyScene.on_enter appends "on_enter" to scene.calls, so
+        # we also hook into that to track ordering.
+        original_on_enter = scene.on_enter
+
+        def tracking_on_enter() -> None:
+            original_on_enter()
+            order.append("on_enter")
+
+        scene.on_enter = tracking_on_enter  # type: ignore[assignment]
+        stack.push(scene)
+        assert order == ["on_enter", "hook"]
+
+    def test_multiple_enter_hooks_fire_in_order(self) -> None:
+        stack = SceneStack()
+        scene = DummyScene()
+        log: list[int] = []
+        scene.add_enter_hook(lambda: log.append(1))
+        scene.add_enter_hook(lambda: log.append(2))
+        scene.add_enter_hook(lambda: log.append(3))
+        stack.push(scene)
+        assert log == [1, 2, 3]
+
+    def test_enter_hook_fires_on_replace_new_scene(self) -> None:
+        stack = SceneStack()
+        stack.push(DummyScene("old"))
+        new = DummyScene("new")
+        log: list[str] = []
+        new.add_enter_hook(lambda: log.append("entered"))
+        stack.replace(new)
+        assert "entered" in log
+
+    def test_remove_enter_hook(self) -> None:
+        scene = DummyScene()
+        log: list[str] = []
+        cb = lambda: log.append("should_not_fire")  # noqa: E731
+        scene.add_enter_hook(cb)
+        scene.remove_enter_hook(cb)
+        scene._fire_enter()
+        assert "should_not_fire" not in log
+
+    def test_remove_enter_hook_not_registered_raises(self) -> None:
+        scene = DummyScene()
+        with pytest.raises(ValueError):
+            scene.remove_enter_hook(lambda: None)
+
+    def test_add_enter_hook_rejects_non_callable(self) -> None:
+        scene = DummyScene()
+        with pytest.raises(TypeError, match="callback must be callable"):
+            scene.add_enter_hook(42)  # type: ignore[arg-type]
+
+    def test_same_callback_registered_twice(self) -> None:
+        """Same callback registered twice fires twice."""
+        scene = DummyScene()
+        count: list[int] = []
+        cb = lambda: count.append(1)  # noqa: E731
+        scene.add_enter_hook(cb)
+        scene.add_enter_hook(cb)
+        scene._fire_enter()
+        assert len(count) == 2
+
+    def test_remove_only_removes_first_registration(self) -> None:
+        """remove_enter_hook removes only the first matching registration."""
+        scene = DummyScene()
+        count: list[int] = []
+        cb = lambda: count.append(1)  # noqa: E731
+        scene.add_enter_hook(cb)
+        scene.add_enter_hook(cb)
+        scene.remove_enter_hook(cb)
+        scene._fire_enter()
+        assert len(count) == 1
+
+
+class TestSceneExitHooks:
+    """Callback-based on_exit hooks via add_exit_hook / remove_exit_hook."""
+
+    def test_add_exit_hook_fires_on_pop(self) -> None:
+        stack = SceneStack()
+        scene = DummyScene()
+        log: list[str] = []
+        scene.add_exit_hook(lambda: log.append("hook_called"))
+        stack.push(scene)
+        stack.pop()
+        assert "hook_called" in log
+
+    def test_exit_hook_fires_after_on_exit(self) -> None:
+        """Registered callbacks fire after the overridden on_exit."""
+        scene = DummyScene()
+        order: list[str] = []
+        original_on_exit = scene.on_exit
+
+        def tracking_on_exit() -> None:
+            original_on_exit()
+            order.append("on_exit")
+
+        scene.on_exit = tracking_on_exit  # type: ignore[assignment]
+        scene.add_exit_hook(lambda: order.append("hook"))
+        scene._fire_exit()
+        assert order == ["on_exit", "hook"]
+
+    def test_multiple_exit_hooks_fire_in_order(self) -> None:
+        stack = SceneStack()
+        scene = DummyScene()
+        log: list[int] = []
+        scene.add_exit_hook(lambda: log.append(1))
+        scene.add_exit_hook(lambda: log.append(2))
+        scene.add_exit_hook(lambda: log.append(3))
+        stack.push(scene)
+        stack.pop()
+        assert log == [1, 2, 3]
+
+    def test_exit_hook_fires_on_replace_old_scene(self) -> None:
+        stack = SceneStack()
+        old = DummyScene("old")
+        log: list[str] = []
+        old.add_exit_hook(lambda: log.append("exited"))
+        stack.push(old)
+        stack.replace(DummyScene("new"))
+        assert "exited" in log
+
+    def test_exit_hook_fires_on_clear(self) -> None:
+        stack = SceneStack()
+        scene = DummyScene()
+        log: list[str] = []
+        scene.add_exit_hook(lambda: log.append("cleared"))
+        stack.push(scene)
+        stack.clear()
+        assert "cleared" in log
+
+    def test_remove_exit_hook(self) -> None:
+        scene = DummyScene()
+        log: list[str] = []
+        cb = lambda: log.append("should_not_fire")  # noqa: E731
+        scene.add_exit_hook(cb)
+        scene.remove_exit_hook(cb)
+        scene._fire_exit()
+        assert "should_not_fire" not in log
+
+    def test_remove_exit_hook_not_registered_raises(self) -> None:
+        scene = DummyScene()
+        with pytest.raises(ValueError):
+            scene.remove_exit_hook(lambda: None)
+
+    def test_add_exit_hook_rejects_non_callable(self) -> None:
+        scene = DummyScene()
+        with pytest.raises(TypeError, match="callback must be callable"):
+            scene.add_exit_hook("not callable")  # type: ignore[arg-type]
+
+
+class TestSceneHooksWithoutSuperInit:
+    """Hooks should work even if a subclass forgets super().__init__()."""
+
+    def test_enter_hook_works_without_super_init(self) -> None:
+        class NoSuperScene(Scene):
+            def __init__(self) -> None:
+                # Deliberately not calling super().__init__()
+                pass
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = NoSuperScene()
+        log: list[str] = []
+        scene.add_enter_hook(lambda: log.append("entered"))
+        scene._fire_enter()
+        assert log == ["entered"]
+
+    def test_exit_hook_works_without_super_init(self) -> None:
+        class NoSuperScene(Scene):
+            def __init__(self) -> None:
+                pass
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = NoSuperScene()
+        log: list[str] = []
+        scene.add_exit_hook(lambda: log.append("exited"))
+        scene._fire_exit()
+        assert log == ["exited"]
+
+    def test_fire_enter_without_hooks_is_safe(self) -> None:
+        """_fire_enter works even if no hooks registered and no super().__init__()."""
+
+        class NoSuperScene(Scene):
+            def __init__(self) -> None:
+                pass
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = NoSuperScene()
+        scene._fire_enter()  # Should not raise
+
+    def test_fire_exit_without_hooks_is_safe(self) -> None:
+        """_fire_exit works even if no hooks registered and no super().__init__()."""
+
+        class NoSuperScene(Scene):
+            def __init__(self) -> None:
+                pass
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = NoSuperScene()
+        scene._fire_exit()  # Should not raise

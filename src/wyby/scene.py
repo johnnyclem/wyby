@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 
 _logger = logging.getLogger(__name__)
 
@@ -55,6 +56,12 @@ class Scene(ABC):
     :meth:`on_pause`, :meth:`on_resume`) are optional and default
     to no-ops.
 
+    In addition to the override-based hooks, scenes support
+    **callback-based hooks** via :meth:`add_enter_hook`,
+    :meth:`add_exit_hook`, etc. These allow external code (debug
+    tools, analytics, sound managers) to react to scene transitions
+    without subclassing.
+
     Caveats:
         - Scenes do **not** receive a reference to the engine or stack
           automatically. If a scene needs to trigger transitions (e.g.,
@@ -64,7 +71,23 @@ class Scene(ABC):
           engine to call them at different rates in the future (e.g.,
           rendering at display refresh rate while updating at a fixed
           timestep). In v0.1 they are called 1:1 each tick.
+        - Subclasses that define ``__init__`` should call
+          ``super().__init__()`` to ensure callback hook lists are
+          initialized. If ``super().__init__()`` is not called,
+          registered callbacks will still work (lazy initialization),
+          but calling ``super().__init__()`` is the recommended pattern.
+        - Registered callbacks are invoked **after** the overridden
+          ``on_enter``/``on_exit`` method, in registration order.
+          If the overridden method raises, callbacks are not invoked.
+        - Callbacks must not raise exceptions. If a callback raises,
+          remaining callbacks in the list are skipped and the exception
+          propagates. Guard your callbacks with try/except if they
+          might fail.
     """
+
+    def __init__(self) -> None:
+        self._enter_hooks: list[Callable[[], None]] = []
+        self._exit_hooks: list[Callable[[], None]] = []
 
     @abstractmethod
     def update(self, dt: float) -> None:
@@ -93,6 +116,10 @@ class Scene(ABC):
               the interface contract.
         """
 
+    # ------------------------------------------------------------------
+    # Override-based lifecycle hooks (subclasses override these)
+    # ------------------------------------------------------------------
+
     def on_enter(self) -> None:
         """Called when this scene becomes the active (top) scene.
 
@@ -101,6 +128,7 @@ class Scene(ABC):
         is popped.
 
         Override this to initialize resources, start music, etc.
+        Registered enter-hook callbacks fire after this method returns.
         """
 
     def on_exit(self) -> None:
@@ -109,6 +137,8 @@ class Scene(ABC):
         This is invoked when the scene is popped or replaced. Use it
         to clean up resources that should not persist after the scene
         is gone.
+
+        Registered exit-hook callbacks fire after this method returns.
 
         Caveats:
             - ``on_exit`` is called **after** the scene is removed
@@ -129,6 +159,105 @@ class Scene(ABC):
         This happens when the scene above it is popped. Override this
         to resume music, timers, etc.
         """
+
+    # ------------------------------------------------------------------
+    # Callback-based hooks (register/remove without subclassing)
+    # ------------------------------------------------------------------
+
+    def add_enter_hook(self, callback: Callable[[], None]) -> None:
+        """Register a callback invoked when this scene enters.
+
+        Callbacks run after :meth:`on_enter`, in registration order.
+
+        Args:
+            callback: A zero-argument callable.
+
+        Raises:
+            TypeError: If *callback* is not callable.
+
+        Caveats:
+            - The same callback can be registered multiple times and
+              will be called once per registration.
+            - Callbacks must not raise. An exception in a callback
+              prevents subsequent callbacks from running.
+        """
+        if not callable(callback):
+            raise TypeError(
+                f"callback must be callable, got {type(callback).__name__}"
+            )
+        # Lazy init for subclasses that don't call super().__init__().
+        if not hasattr(self, "_enter_hooks"):
+            self._enter_hooks = []
+        self._enter_hooks.append(callback)
+
+    def remove_enter_hook(self, callback: Callable[[], None]) -> None:
+        """Remove a previously registered on-enter callback.
+
+        Only the first matching registration is removed.
+
+        Args:
+            callback: The callback to remove.
+
+        Raises:
+            ValueError: If *callback* is not registered.
+        """
+        hooks = getattr(self, "_enter_hooks", [])
+        hooks.remove(callback)  # raises ValueError if not found
+
+    def add_exit_hook(self, callback: Callable[[], None]) -> None:
+        """Register a callback invoked when this scene exits.
+
+        Callbacks run after :meth:`on_exit`, in registration order.
+
+        Args:
+            callback: A zero-argument callable.
+
+        Raises:
+            TypeError: If *callback* is not callable.
+
+        Caveats:
+            - The same callback can be registered multiple times and
+              will be called once per registration.
+            - Callbacks must not raise. An exception in a callback
+              prevents subsequent callbacks from running.
+        """
+        if not callable(callback):
+            raise TypeError(
+                f"callback must be callable, got {type(callback).__name__}"
+            )
+        if not hasattr(self, "_exit_hooks"):
+            self._exit_hooks = []
+        self._exit_hooks.append(callback)
+
+    def remove_exit_hook(self, callback: Callable[[], None]) -> None:
+        """Remove a previously registered on-exit callback.
+
+        Only the first matching registration is removed.
+
+        Args:
+            callback: The callback to remove.
+
+        Raises:
+            ValueError: If *callback* is not registered.
+        """
+        hooks = getattr(self, "_exit_hooks", [])
+        hooks.remove(callback)  # raises ValueError if not found
+
+    # ------------------------------------------------------------------
+    # Internal: fire hooks (called by SceneStack)
+    # ------------------------------------------------------------------
+
+    def _fire_enter(self) -> None:
+        """Invoke on_enter() then all registered enter callbacks."""
+        self.on_enter()
+        for cb in getattr(self, "_enter_hooks", ()):
+            cb()
+
+    def _fire_exit(self) -> None:
+        """Invoke on_exit() then all registered exit callbacks."""
+        self.on_exit()
+        for cb in getattr(self, "_exit_hooks", ()):
+            cb()
 
 
 class SceneStack:
@@ -248,7 +377,7 @@ class SceneStack:
             type(scene).__name__,
             len(self._stack),
         )
-        scene.on_enter()
+        scene._fire_enter()
 
     def pop(self) -> Scene:
         """Remove and return the top scene from the stack.
@@ -272,7 +401,7 @@ class SceneStack:
             type(scene).__name__,
             len(self._stack),
         )
-        scene.on_exit()
+        scene._fire_exit()
 
         # Resume the scene that is now on top (if any).
         new_top = self.peek()
@@ -327,10 +456,10 @@ class SceneStack:
             type(scene).__name__,
             len(self._stack) + 1,
         )
-        old_scene.on_exit()
+        old_scene._fire_exit()
 
         self._stack.append(scene)
-        scene.on_enter()
+        scene._fire_enter()
 
         return old_scene
 
@@ -352,7 +481,7 @@ class SceneStack:
                 type(scene).__name__,
                 len(self._stack),
             )
-            scene.on_exit()
+            scene._fire_exit()
 
     def __repr__(self) -> str:
         scene_names = [type(s).__name__ for s in self._stack]
