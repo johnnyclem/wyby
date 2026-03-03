@@ -23,7 +23,6 @@ EXPECTED_PUBLIC_MODULES = [
     "grid",
     "color",
     "save",
-    "diagnostics",
 ]
 
 EXPECTED_INTERNAL_MODULES = [
@@ -33,6 +32,7 @@ EXPECTED_INTERNAL_MODULES = [
 # Modules that have real implementations (no longer stubs).
 EXPECTED_EXISTING_MODULES = [
     "app",
+    "diagnostics",
     "project_init",
     "scene",
 ]

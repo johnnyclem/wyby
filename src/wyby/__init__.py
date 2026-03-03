@@ -31,6 +31,7 @@ are functional.
 
 from wyby._logging import configure_logging, setup_null_handler
 from wyby.app import Engine, QuitSignal
+from wyby.diagnostics import FPSCounter
 from wyby.event import Event, EventQueue
 from wyby.resize import ResizeHandler, get_terminal_size
 from wyby.scene import Scene, SceneStack
@@ -45,6 +46,7 @@ __all__ = [
     "Engine",
     "Event",
     "EventQueue",
+    "FPSCounter",
     "QuitSignal",
     "ResizeHandler",
     "Scene",

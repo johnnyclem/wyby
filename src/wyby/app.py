@@ -68,6 +68,7 @@ import logging
 import time
 
 from wyby._logging import configure_logging
+from wyby.diagnostics import FPSCounter
 from wyby.event import EventQueue
 from wyby.scene import SceneStack
 
@@ -180,6 +181,10 @@ class Engine:
             This is a convenience shortcut equivalent to calling
             ``configure_logging(level=logging.DEBUG)`` yourself.
             Defaults to ``False``.
+        show_fps: When ``True``, enables an :class:`FPSCounter` that
+            tracks wall-clock tick intervals and computes smoothed FPS
+            metrics.  Access the counter via :attr:`fps_counter`.
+            Defaults to ``False``.
 
     Raises:
         TypeError: If *title* is not a string, or *width*/*height*/*tps*
@@ -209,6 +214,8 @@ class Engine:
         "_tps",
         "_target_dt",
         "_debug",
+        "_show_fps",
+        "_fps_counter",
         "_running",
         "_tick_count",
         "_dt",
@@ -226,6 +233,7 @@ class Engine:
         height: int = _DEFAULT_HEIGHT,
         tps: int = _DEFAULT_TPS,
         debug: bool = False,
+        show_fps: bool = False,
     ) -> None:
         if not isinstance(title, str):
             raise TypeError(
@@ -278,6 +286,16 @@ class Engine:
         if self._debug:
             configure_logging(level=logging.DEBUG)
 
+        self._show_fps = bool(show_fps)
+        # Caveat: the FPS counter tracks wall-clock tick intervals, not
+        # actual Rich render throughput (the renderer is not yet connected).
+        # Reported FPS includes time spent sleeping between ticks, so at
+        # low load it will closely match the target tps. Once the renderer
+        # is wired up, a per-render measurement may provide finer detail.
+        self._fps_counter: FPSCounter | None = (
+            FPSCounter() if self._show_fps else None
+        )
+
         self._running = False
         self._tick_count: int = 0
         self._dt: float = 0.0
@@ -288,11 +306,13 @@ class Engine:
         self._scene_stack = SceneStack()
 
         _logger.debug(
-            "Engine initialized: title=%r, width=%d, height=%d, tps=%d",
+            "Engine initialized: title=%r, width=%d, height=%d, "
+            "tps=%d, show_fps=%s",
             self._title,
             self._width,
             self._height,
             self._tps,
+            self._show_fps,
         )
 
     @property
@@ -319,6 +339,29 @@ class Engine:
     def debug(self) -> bool:
         """Whether debug mode is enabled (verbose logging to stderr)."""
         return self._debug
+
+    @property
+    def show_fps(self) -> bool:
+        """Whether the FPS counter is enabled."""
+        return self._show_fps
+
+    @property
+    def fps_counter(self) -> FPSCounter | None:
+        """The FPS counter, or ``None`` if ``show_fps`` is ``False``.
+
+        When enabled, the counter tracks wall-clock tick intervals and
+        provides smoothed FPS via its :attr:`~FPSCounter.fps` property.
+
+        Caveats:
+            - The counter measures tick throughput, not render throughput.
+              Until the Rich renderer is connected, FPS reflects the
+              engine loop rate (including sleep time), which at low load
+              will closely match ``tps``.
+            - FPS is inherently variable in terminal environments.
+              15–30 FPS is realistic on modern terminals; do not use
+              these numbers to promise performance to end users.
+        """
+        return self._fps_counter
 
     @property
     def target_dt(self) -> float:
@@ -452,6 +495,8 @@ class Engine:
         self._dt = 0.0
         self._elapsed = 0.0
         self._accumulator = 0.0
+        if self._fps_counter is not None:
+            self._fps_counter.reset()
         # time.monotonic() is used rather than time.perf_counter() because
         # monotonic is guaranteed never to go backwards (immune to NTP
         # adjustments and system clock changes).  perf_counter offers
@@ -624,6 +669,14 @@ class Engine:
         if scene is not None:
             scene.render()
 
+        # -- FPS tracking --
+        # Record the tick timestamp for FPS computation.  This is done
+        # after all three phases so that frame_time reflects the full
+        # cost of input + update + render (plus any sleep from the
+        # outer loop between ticks).
+        if self._fps_counter is not None:
+            self._fps_counter.tick(time.monotonic())
+
     def __repr__(self) -> str:
         parts = (
             f"Engine(title={self._title!r}, "
@@ -632,4 +685,6 @@ class Engine:
         )
         if self._debug:
             parts += ", debug=True"
+        if self._show_fps:
+            parts += ", show_fps=True"
         return parts + ")"
