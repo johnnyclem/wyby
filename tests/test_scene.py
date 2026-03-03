@@ -514,7 +514,24 @@ class TestSceneStackClear:
 
 
 class TestSceneStackDepthLimit:
-    """Stack depth limit enforcement."""
+    """Stack depth limit enforcement.
+
+    Caveats:
+        - The depth limit exists to catch accidental infinite push loops
+          (e.g., a scene's on_enter pushing another scene which pushes
+          another, etc.), **not** to constrain legitimate use.  The
+          default of 32 is intentionally generous — most games need
+          fewer than 10 stacked scenes.
+        - The limit is checked at push time only.  ``replace()`` does not
+          increase depth, so it always succeeds regardless of the limit.
+        - A failed push (``RuntimeError``) must leave the stack completely
+          unchanged — no lifecycle hooks fire and the stack depth stays
+          the same.  This is critical for recovery: the calling code can
+          catch the error and continue without worrying about partial
+          state changes.
+        - After a ``pop()`` or ``clear()``, the stack depth decreases and
+          new pushes are allowed again up to the limit.
+    """
 
     def test_push_at_max_depth_raises(self) -> None:
         stack = SceneStack(max_depth=3)
@@ -553,6 +570,128 @@ class TestSceneStackDepthLimit:
 
     def test_default_max_depth_value(self) -> None:
         assert _DEFAULT_MAX_DEPTH == 32
+
+    def test_exact_boundary_push_succeeds_at_limit(self) -> None:
+        """Pushing the Nth scene into a stack with max_depth=N succeeds."""
+        stack = SceneStack(max_depth=5)
+        for i in range(5):
+            stack.push(DummyScene(str(i)))
+        assert len(stack) == 5
+
+    def test_exact_boundary_push_fails_at_limit_plus_one(self) -> None:
+        """Pushing the (N+1)th scene into a stack with max_depth=N fails."""
+        stack = SceneStack(max_depth=5)
+        for i in range(5):
+            stack.push(DummyScene(str(i)))
+        with pytest.raises(RuntimeError, match="depth limit reached"):
+            stack.push(DummyScene("overflow"))
+
+    def test_replace_at_max_depth_succeeds(self) -> None:
+        """replace() does not increase depth, so it works at max_depth.
+
+        Caveat: replace() is a lateral transition (pop + push) that
+        keeps the stack the same size.  It should never be blocked by
+        the depth limit.
+        """
+        stack = SceneStack(max_depth=2)
+        a = DummyScene("a")
+        b = DummyScene("b")
+        stack.push(a)
+        stack.push(b)
+        assert len(stack) == 2
+        # replace() should succeed even though we're at max_depth.
+        new_scene = DummyScene("replacement")
+        old = stack.replace(new_scene)
+        assert old is b
+        assert stack.peek() is new_scene
+        assert len(stack) == 2
+
+    def test_clear_resets_depth_allows_new_pushes(self) -> None:
+        """After clear(), the stack is empty and pushes work again."""
+        stack = SceneStack(max_depth=2)
+        stack.push(DummyScene("a"))
+        stack.push(DummyScene("b"))
+        # At limit — can't push.
+        with pytest.raises(RuntimeError):
+            stack.push(DummyScene("c"))
+        stack.clear()
+        assert len(stack) == 0
+        # Now we can push again.
+        stack.push(DummyScene("d"))
+        stack.push(DummyScene("e"))
+        assert len(stack) == 2
+
+    def test_failed_push_does_not_fire_lifecycle_hooks(self) -> None:
+        """When push fails due to depth limit, no hooks fire.
+
+        Caveat: a failed push must be completely atomic — neither the
+        rejected scene's on_enter nor the current top scene's on_pause
+        should fire.  This prevents half-initialized state from a scene
+        that was never actually added to the stack.
+        """
+        stack = SceneStack(max_depth=1)
+        top = DummyScene("top")
+        stack.push(top)
+        top.calls.clear()  # Reset after on_enter from the push above.
+
+        rejected = DummyScene("rejected")
+        with pytest.raises(RuntimeError):
+            stack.push(rejected)
+
+        # Top scene should NOT have received on_pause.
+        assert "on_pause" not in top.calls
+        # Rejected scene should NOT have received on_enter.
+        assert "on_enter" not in rejected.calls
+
+    def test_error_message_includes_limit_value(self) -> None:
+        """The RuntimeError message includes the configured max_depth.
+
+        This helps developers quickly identify whether the limit is the
+        default (32) or a custom value when debugging runaway push loops.
+        """
+        stack = SceneStack(max_depth=7)
+        for i in range(7):
+            stack.push(DummyScene(str(i)))
+        with pytest.raises(RuntimeError, match=r"\(7\)"):
+            stack.push(DummyScene("overflow"))
+
+    def test_error_message_suggests_increasing_limit(self) -> None:
+        """The error message tells the user how to fix a legitimate need."""
+        stack = SceneStack(max_depth=3)
+        for i in range(3):
+            stack.push(DummyScene(str(i)))
+        with pytest.raises(RuntimeError, match="increase max_depth"):
+            stack.push(DummyScene("overflow"))
+
+    def test_depth_limit_with_interleaved_push_pop(self) -> None:
+        """The limit tracks actual stack depth, not total pushes.
+
+        Caveat: the depth limit counts the current number of scenes on
+        the stack, not the cumulative number of push calls.  A game that
+        rapidly pushes and pops scenes (e.g., dialog boxes) will never
+        hit the limit as long as the stack doesn't grow beyond max_depth
+        at any single point in time.
+        """
+        stack = SceneStack(max_depth=3)
+        # Push and pop many times — should never hit the limit.
+        for _ in range(50):
+            stack.push(DummyScene("temp"))
+            stack.pop()
+        assert len(stack) == 0
+
+    def test_depth_limit_logging(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Depth limit enforcement should be visible in debug logs.
+
+        The push operations leading up to the limit should log scene
+        additions.  This helps trace runaway push loops in debug mode.
+        """
+        stack = SceneStack(max_depth=2)
+        with caplog.at_level(logging.DEBUG, logger="wyby.scene"):
+            stack.push(DummyScene("a"))
+            stack.push(DummyScene("b"))
+        # Verify push operations were logged.
+        push_logs = [r for r in caplog.records if "Pushed scene" in r.message]
+        assert len(push_logs) == 2
 
 
 # ---------------------------------------------------------------------------
