@@ -224,6 +224,14 @@ from wyby.input_permissions import (
     format_input_permissions_for_category,
     get_entries_by_category,
 )
+from wyby.rich_live_tradeoffs import (
+    TRADEOFF_CATEGORIES,
+    TRADEOFF_ENTRIES,
+    RichLiveTradeoff,
+    format_rich_live_tradeoffs_doc,
+    format_tradeoffs_for_category,
+    get_tradeoffs_by_category,
+)
 
 # Attach a NullHandler so that wyby's internal log messages are silently
 # discarded unless the application (game) configures logging. This follows
@@ -425,4 +433,10 @@ __all__ = [
     "format_input_permissions_doc",
     "format_input_permissions_for_category",
     "get_entries_by_category",
+    "TRADEOFF_CATEGORIES",
+    "TRADEOFF_ENTRIES",
+    "RichLiveTradeoff",
+    "format_rich_live_tradeoffs_doc",
+    "format_tradeoffs_for_category",
+    "get_tradeoffs_by_category",
 ]
