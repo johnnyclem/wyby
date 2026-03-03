@@ -51,6 +51,7 @@ from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from wyby.component import Component
     from wyby.entity import Entity
     from wyby.event import Event
 
@@ -507,6 +508,65 @@ class Scene(ABC):
               pattern matching.
         """
         return [e for e in self._entities.values() if e.has_tag(tag)]
+
+    def get_entities_by_component(
+        self, component_type: type[Component],
+    ) -> list[Entity]:
+        """Return all entities that have a component of the given type.
+
+        This is the primary way to find all entities with a specific
+        capability — e.g. all entities with a ``Velocity`` component
+        for a movement system, or all entities with ``Health`` for a
+        damage system.
+
+        Args:
+            component_type: The exact class of the component to filter by
+                (e.g. ``Health``, not an instance).
+
+        Returns:
+            A list of matching entities, in insertion order.
+            Empty if none match.
+
+        Raises:
+            TypeError: If *component_type* is not a type or is not a
+                subclass of :class:`~wyby.component.Component`.
+
+        Caveats:
+            - **O(n) scan** over all entities in the scene.  There is no
+              component index — every entity is checked via
+              :meth:`~wyby.entity.Entity.has_component`.  For scenes with
+              up to a few hundred entities this is fine.  For thousands,
+              maintain a ``dict[type, set[Entity]]`` index in your scene
+              subclass and update it on add/remove.
+            - **Exact class match only.**  Passing a base class will not
+              match subclass components.  ``get_entities_by_component(Health)``
+              will not return entities that have ``AdvancedHealth``.  This
+              is consistent with :meth:`~wyby.entity.Entity.has_component`.
+            - **Not a full ECS query.**  There is no multi-component query
+              (e.g. "entities with both Position and Velocity").  Combine
+              results manually or use a list comprehension::
+
+                  movers = [
+                      e for e in self.entities
+                      if e.has_component(Position) and e.has_component(Velocity)
+                  ]
+
+              If you need efficient multi-component queries, consider a
+              dedicated ECS library like ``esper``.
+        """
+        from wyby.component import Component as _Component
+
+        if not isinstance(component_type, type) or not issubclass(
+            component_type, _Component
+        ):
+            raise TypeError(
+                f"component_type must be a Component subclass, "
+                f"got {component_type!r}"
+            )
+        return [
+            e for e in self._entities.values()
+            if e.has_component(component_type)
+        ]
 
     # ------------------------------------------------------------------
     # Callback-based hooks (register/remove without subclassing)

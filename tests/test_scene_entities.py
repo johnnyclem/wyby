@@ -1,9 +1,10 @@
-"""Tests for Scene entity management — add, remove, query by id/position/tag."""
+"""Tests for Scene entity management — add, remove, query by id/position/tag/component."""
 
 from __future__ import annotations
 
 import pytest
 
+from wyby.component import Component
 from wyby.entity import Entity
 from wyby.scene import Scene
 
@@ -381,3 +382,132 @@ class TestSceneEntityLifecycle:
         # super().__init__() is required.
         with pytest.raises(AttributeError):
             scene.add_entity(e)
+
+
+# ---------------------------------------------------------------------------
+# get_entities_by_component
+# ---------------------------------------------------------------------------
+
+
+class _Health(Component):
+    """Test component for component-type queries."""
+
+    def __init__(self, hp: int = 100) -> None:
+        super().__init__()
+        self.hp = hp
+
+
+class _Velocity(Component):
+    """Second test component for multi-component scenarios."""
+
+    def __init__(self, vx: float = 0.0, vy: float = 0.0) -> None:
+        super().__init__()
+        self.vx = vx
+        self.vy = vy
+
+
+class TestGetEntitiesByComponent:
+    """Scene.get_entities_by_component returns entities with a given component type."""
+
+    def test_returns_entities_with_component(self) -> None:
+        scene = _StubScene()
+        e1 = Entity(entity_id=1)
+        e2 = Entity(entity_id=2)
+        e1.add_component(_Health())
+        scene.add_entity(e1)
+        scene.add_entity(e2)
+        result = scene.get_entities_by_component(_Health)
+        assert result == [e1]
+
+    def test_returns_empty_when_no_match(self) -> None:
+        scene = _StubScene()
+        e = Entity(entity_id=1)
+        scene.add_entity(e)
+        assert scene.get_entities_by_component(_Health) == []
+
+    def test_returns_multiple_matches(self) -> None:
+        scene = _StubScene()
+        e1 = Entity(entity_id=1)
+        e2 = Entity(entity_id=2)
+        e1.add_component(_Health())
+        e2.add_component(_Health(50))
+        scene.add_entity(e1)
+        scene.add_entity(e2)
+        result = scene.get_entities_by_component(_Health)
+        assert len(result) == 2
+        assert e1 in result
+        assert e2 in result
+
+    def test_empty_scene_returns_empty(self) -> None:
+        scene = _StubScene()
+        assert scene.get_entities_by_component(_Health) == []
+
+    def test_exact_class_match_only(self) -> None:
+        """Querying a base class does not match subclass components."""
+
+        class _AdvancedHealth(_Health):
+            pass
+
+        scene = _StubScene()
+        e = Entity(entity_id=1)
+        e.add_component(_AdvancedHealth())
+        scene.add_entity(e)
+        # Querying for the base _Health does NOT find _AdvancedHealth.
+        assert scene.get_entities_by_component(_Health) == []
+        # Querying for the exact subclass does.
+        assert scene.get_entities_by_component(_AdvancedHealth) == [e]
+
+    def test_filters_by_specific_component_type(self) -> None:
+        """Only entities with the queried type are returned, not others."""
+        scene = _StubScene()
+        e1 = Entity(entity_id=1)
+        e2 = Entity(entity_id=2)
+        e1.add_component(_Health())
+        e2.add_component(_Velocity())
+        scene.add_entity(e1)
+        scene.add_entity(e2)
+        assert scene.get_entities_by_component(_Health) == [e1]
+        assert scene.get_entities_by_component(_Velocity) == [e2]
+
+    def test_rejects_non_component_type(self) -> None:
+        scene = _StubScene()
+        with pytest.raises(TypeError, match="must be a Component subclass"):
+            scene.get_entities_by_component(str)  # type: ignore[arg-type]
+
+    def test_rejects_instance_instead_of_type(self) -> None:
+        scene = _StubScene()
+        with pytest.raises(TypeError, match="must be a Component subclass"):
+            scene.get_entities_by_component(_Health())  # type: ignore[arg-type]
+
+    def test_reflects_component_changes(self) -> None:
+        """Query reflects current component state, not add-time state."""
+        scene = _StubScene()
+        e = Entity(entity_id=1)
+        scene.add_entity(e)
+        assert scene.get_entities_by_component(_Health) == []
+        e.add_component(_Health())
+        assert scene.get_entities_by_component(_Health) == [e]
+
+    def test_reflects_component_removal(self) -> None:
+        """Query stops matching after a component is removed."""
+        scene = _StubScene()
+        e = Entity(entity_id=1)
+        e.add_component(_Health())
+        scene.add_entity(e)
+        assert scene.get_entities_by_component(_Health) == [e]
+        e.remove_component(_Health)
+        assert scene.get_entities_by_component(_Health) == []
+
+    def test_preserves_insertion_order(self) -> None:
+        scene = _StubScene()
+        e1 = Entity(entity_id=10)
+        e2 = Entity(entity_id=20)
+        e3 = Entity(entity_id=30)
+        e1.add_component(_Health())
+        e2.add_component(_Health())
+        e3.add_component(_Health())
+        scene.add_entity(e1)
+        scene.add_entity(e2)
+        scene.add_entity(e3)
+        result = scene.get_entities_by_component(_Health)
+        assert [e.id for e in result] == [10, 20, 30]
