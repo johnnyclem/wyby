@@ -122,6 +122,7 @@ from wyby.focus import FocusManager
 from wyby.healthbar import HealthBar
 from wyby.widget import Widget
 from wyby.layout import Alignment, HBox, VBox
+from wyby.text_input import TextInput
 from wyby.cell_size_map import CellSizeMap
 from wyby.font_variance import (
     DEFAULT_CELL_ASPECT_RATIO,
@@ -275,4 +276,5 @@ __all__ = [
     "get_font_issues_by_category",
     "get_issues_for_terminal",
     "log_font_variance_warnings",
+    "TextInput",
 ]
