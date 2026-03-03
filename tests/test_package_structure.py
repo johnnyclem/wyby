@@ -19,7 +19,6 @@ import wyby
 EXPECTED_PUBLIC_MODULES = [
     "input",
     "entity",
-    "color",
     "save",
 ]
 
@@ -30,6 +29,7 @@ EXPECTED_INTERNAL_MODULES = [
 # Modules that have real implementations (no longer stubs).
 EXPECTED_EXISTING_MODULES = [
     "app",
+    "color",
     "diagnostics",
     "grid",
     "project_init",

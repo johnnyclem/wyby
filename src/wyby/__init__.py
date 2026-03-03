@@ -32,6 +32,13 @@ and ``renderer`` are functional.
 from wyby._logging import configure_logging, setup_null_handler
 from wyby.alt_screen import AltScreen, disable_alt_screen, enable_alt_screen
 from wyby.app import Engine, EngineConfig, QuitSignal
+from wyby.color import (
+    color_system_for_support,
+    downgrade_color,
+    nearest_ansi16,
+    nearest_ansi256,
+    parse_color,
+)
 from wyby.diagnostics import (
     ColorSupport,
     FPSCounter,
@@ -70,10 +77,15 @@ __all__ = [
     "Scene",
     "SceneStack",
     "TerminalCapabilities",
+    "color_system_for_support",
     "configure_logging",
     "create_console",
     "detect_capabilities",
     "disable_alt_screen",
+    "downgrade_color",
     "enable_alt_screen",
     "get_terminal_size",
+    "nearest_ansi16",
+    "nearest_ansi256",
+    "parse_color",
 ]
