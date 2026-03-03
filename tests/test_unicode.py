@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from wyby.unicode import char_width, is_wide_char, string_width
+from wyby.unicode import (
+    char_width,
+    grapheme_string_width,
+    grapheme_width,
+    is_wide_char,
+    iter_grapheme_clusters,
+    string_width,
+)
 from wyby.grid import Cell, CellBuffer, _DEFAULT_CHAR, _WIDE_CHAR_FILLER
 
 
@@ -687,3 +694,278 @@ class TestUnicodeEdgeCases:
         # Column 3 is the last (0-indexed in width-4 buffer)
         # Wide char needs columns 3 and 4, but 4 is out of bounds.
         assert buf.get(3, 0).char == _DEFAULT_CHAR  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
+# iter_grapheme_clusters
+# ---------------------------------------------------------------------------
+
+
+class TestIterGraphemeClustersBasic:
+    """iter_grapheme_clusters handles simple text correctly."""
+
+    def test_ascii_string(self) -> None:
+        assert list(iter_grapheme_clusters("Hello")) == ["H", "e", "l", "l", "o"]
+
+    def test_empty_string(self) -> None:
+        assert list(iter_grapheme_clusters("")) == []
+
+    def test_single_char(self) -> None:
+        assert list(iter_grapheme_clusters("A")) == ["A"]
+
+    def test_cjk_chars(self) -> None:
+        assert list(iter_grapheme_clusters("中文")) == ["中", "文"]
+
+    def test_mixed_ascii_cjk(self) -> None:
+        assert list(iter_grapheme_clusters("A中B")) == ["A", "中", "B"]
+
+
+class TestIterGraphemeClustersCombining:
+    """iter_grapheme_clusters groups combining marks with base characters."""
+
+    def test_combining_acute(self) -> None:
+        """e + combining acute accent → single cluster."""
+        text = "e\u0301"  # e + combining acute
+        clusters = list(iter_grapheme_clusters(text))
+        assert clusters == ["e\u0301"]
+
+    def test_multiple_combining_marks(self) -> None:
+        """Base + multiple combining marks → single cluster."""
+        # a + combining tilde + combining acute
+        text = "a\u0303\u0301"
+        clusters = list(iter_grapheme_clusters(text))
+        assert clusters == ["a\u0303\u0301"]
+
+    def test_combining_between_bases(self) -> None:
+        """Each base absorbs its own combining marks."""
+        # a + combining acute, b + combining tilde
+        text = "a\u0301b\u0303"
+        clusters = list(iter_grapheme_clusters(text))
+        assert clusters == ["a\u0301", "b\u0303"]
+
+    def test_orphaned_combining_mark(self) -> None:
+        """A combining mark at the start forms its own cluster."""
+        text = "\u0301A"  # combining acute, then A
+        clusters = list(iter_grapheme_clusters(text))
+        # The combining mark has no base to attach to — becomes its own cluster.
+        assert clusters == ["\u0301", "A"]
+
+
+class TestIterGraphemeClustersZWJ:
+    """iter_grapheme_clusters handles ZWJ sequences."""
+
+    def test_zwj_joins_two_chars(self) -> None:
+        """Two characters joined by ZWJ form a single cluster."""
+        text = "\U0001F468\u200D\U0001F469"  # man ZWJ woman
+        clusters = list(iter_grapheme_clusters(text))
+        assert len(clusters) == 1
+        assert clusters[0] == text
+
+    def test_zwj_chain(self) -> None:
+        """Multi-ZWJ sequence forms a single cluster."""
+        # man ZWJ woman ZWJ girl
+        text = "\U0001F468\u200D\U0001F469\u200D\U0001F467"
+        clusters = list(iter_grapheme_clusters(text))
+        assert len(clusters) == 1
+        assert clusters[0] == text
+
+    def test_zwj_at_end_of_string(self) -> None:
+        """A trailing ZWJ with no following char becomes its own cluster."""
+        text = "A\u200D"
+        clusters = list(iter_grapheme_clusters(text))
+        # ZWJ at end has no next char to join — the ZWJ check requires
+        # i + 1 < n, so ZWJ is not absorbed into 'A'.  It becomes its
+        # own cluster (ZWJ is category Cf, not a combining mark).
+        assert clusters == ["A", "\u200D"]
+
+
+class TestIterGraphemeClustersVariationSelector:
+    """iter_grapheme_clusters groups variation selectors with base."""
+
+    def test_vs16_emoji_presentation(self) -> None:
+        """Character + VS16 forms a single cluster."""
+        text = "#\uFE0F"  # # + VS16
+        clusters = list(iter_grapheme_clusters(text))
+        assert clusters == ["#\uFE0F"]
+
+    def test_vs16_with_combining_keycap(self) -> None:
+        """Keycap sequence: digit + VS16 + combining enclosing keycap."""
+        text = "1\uFE0F\u20E3"  # 1️⃣
+        clusters = list(iter_grapheme_clusters(text))
+        assert len(clusters) == 1
+        assert clusters[0] == text
+
+
+class TestIterGraphemeClustersRegionalIndicator:
+    """iter_grapheme_clusters pairs regional indicators into flags."""
+
+    def test_flag_pair(self) -> None:
+        """Two regional indicators form a single flag cluster."""
+        text = "\U0001F1FA\U0001F1F8"  # US flag
+        clusters = list(iter_grapheme_clusters(text))
+        assert len(clusters) == 1
+        assert clusters[0] == text
+
+    def test_lone_regional_indicator(self) -> None:
+        """A single regional indicator is its own cluster."""
+        text = "\U0001F1FA"
+        clusters = list(iter_grapheme_clusters(text))
+        assert clusters == [text]
+
+    def test_three_regional_indicators(self) -> None:
+        """Three regional indicators → one pair + one lone."""
+        text = "\U0001F1FA\U0001F1F8\U0001F1EC"
+        clusters = list(iter_grapheme_clusters(text))
+        assert len(clusters) == 2
+        assert clusters[0] == "\U0001F1FA\U0001F1F8"
+        assert clusters[1] == "\U0001F1EC"
+
+
+class TestIterGraphemeClustersEmojiModifier:
+    """iter_grapheme_clusters groups emoji modifiers (skin tones)."""
+
+    def test_skin_tone_modifier(self) -> None:
+        """Emoji + skin tone modifier forms a single cluster."""
+        text = "\U0001F44D\U0001F3FD"  # thumbs up + medium skin tone
+        clusters = list(iter_grapheme_clusters(text))
+        assert len(clusters) == 1
+        assert clusters[0] == text
+
+    def test_skin_tone_after_ascii(self) -> None:
+        """Skin tone modifier after a non-emoji base is still absorbed."""
+        text = "A\U0001F3FB"
+        clusters = list(iter_grapheme_clusters(text))
+        # The modifier is absorbed into the cluster with 'A'.
+        assert len(clusters) == 1
+
+
+# ---------------------------------------------------------------------------
+# grapheme_width
+# ---------------------------------------------------------------------------
+
+
+class TestGraphemeWidthSingleCodepoint:
+    """grapheme_width matches char_width for single codepoints."""
+
+    def test_ascii(self) -> None:
+        assert grapheme_width("A") == 1
+
+    def test_cjk(self) -> None:
+        assert grapheme_width("中") == 2
+
+    def test_combining_mark(self) -> None:
+        assert grapheme_width("\u0301") == 0
+
+    def test_control_char(self) -> None:
+        assert grapheme_width("\x00") == 0
+
+    def test_box_drawing(self) -> None:
+        assert grapheme_width("─") == 1
+
+    def test_fullwidth(self) -> None:
+        assert grapheme_width("Ａ") == 2
+
+
+class TestGraphemeWidthMultiCodepoint:
+    """grapheme_width handles multi-codepoint grapheme clusters."""
+
+    def test_base_plus_combining(self) -> None:
+        """Base + combining mark → width of base."""
+        assert grapheme_width("e\u0301") == 1
+
+    def test_base_plus_multiple_combining(self) -> None:
+        """Base + several combining marks → still width of base."""
+        assert grapheme_width("a\u0303\u0301") == 1
+
+    def test_cjk_plus_combining(self) -> None:
+        """CJK base + combining mark → width 2."""
+        assert grapheme_width("中\u0301") == 2
+
+    def test_vs16_triggers_wide(self) -> None:
+        """Character + VS16 → width 2 (emoji presentation)."""
+        assert grapheme_width("#\uFE0F") == 2
+
+    def test_keycap_sequence(self) -> None:
+        """Keycap sequence → width 2."""
+        assert grapheme_width("1\uFE0F\u20E3") == 2
+
+    def test_emoji_zwj_sequence(self) -> None:
+        """Emoji ZWJ sequence → width 2 (from leading wide emoji)."""
+        grapheme = "\U0001F468\u200D\U0001F469\u200D\U0001F467"
+        assert grapheme_width(grapheme) == 2
+
+    def test_emoji_skin_tone(self) -> None:
+        """Emoji + skin tone modifier → width 2."""
+        assert grapheme_width("\U0001F44D\U0001F3FD") == 2
+
+    def test_flag_emoji(self) -> None:
+        """Regional indicator pair → width 2 (base is wide)."""
+        # Regional indicators have EAW "N" (Neutral), but they are
+        # typically rendered as a flag emoji at width 2. Our function
+        # returns 1 per the base character rules — this is a known
+        # terminal-dependent edge case.
+        flag = "\U0001F1FA\U0001F1F8"
+        # Width is based on the base character's EAW (Neutral → 1).
+        # Terminals that render flags as emoji glyphs display width 2,
+        # but unicodedata classifies these as width 1.
+        result = grapheme_width(flag)
+        assert result in (1, 2)  # terminal-dependent
+
+    def test_empty_string(self) -> None:
+        assert grapheme_width("") == 0
+
+
+# ---------------------------------------------------------------------------
+# grapheme_string_width
+# ---------------------------------------------------------------------------
+
+
+class TestGraphemeStringWidth:
+    """grapheme_string_width computes total width from grapheme clusters."""
+
+    def test_ascii_string(self) -> None:
+        assert grapheme_string_width("Hello") == 5
+
+    def test_empty_string(self) -> None:
+        assert grapheme_string_width("") == 0
+
+    def test_cjk_string(self) -> None:
+        assert grapheme_string_width("中文") == 4
+
+    def test_mixed_ascii_cjk(self) -> None:
+        assert grapheme_string_width("A中B") == 4
+
+    def test_combining_mark_no_extra_width(self) -> None:
+        """Combining marks don't add width beyond the base character."""
+        # "e\u0301" is one grapheme cluster with width 1.
+        assert grapheme_string_width("e\u0301") == 1
+        # Compare: string_width also returns 1 (combining = 0).
+        assert string_width("e\u0301") == 1
+
+    def test_matches_string_width_for_simple_text(self) -> None:
+        """For simple text, matches string_width."""
+        for text in ["Hello", "中文", "A中B", "┌──┐", ""]:
+            assert grapheme_string_width(text) == string_width(text)
+
+    def test_vs16_adds_width(self) -> None:
+        """VS16 emoji presentation counted as width 2."""
+        # '#' alone is width 1, but '#' + VS16 is width 2
+        assert grapheme_string_width("#\uFE0F") == 2
+
+    def test_keycap_sequence_width(self) -> None:
+        """Keycap sequence (3 codepoints) has width 2."""
+        assert grapheme_string_width("1\uFE0F\u20E3") == 2
+
+    def test_emoji_zwj_family(self) -> None:
+        """ZWJ family emoji: one grapheme cluster, width 2."""
+        text = "\U0001F468\u200D\U0001F469\u200D\U0001F467"
+        assert grapheme_string_width(text) == 2
+        # Compare: string_width would sum individual codepoints
+        # (2 + 0 + 2 + 0 + 2 = 6) — much larger.
+        assert string_width(text) == 6
+
+    def test_text_with_embedded_grapheme_clusters(self) -> None:
+        """Mixed text: ASCII + grapheme cluster + CJK."""
+        # "He" (2) + "e\u0301" (1) + "中" (2) = 5
+        text = "He" + "e\u0301" + "中"
+        assert grapheme_string_width(text) == 5

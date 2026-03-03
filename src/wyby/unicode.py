@@ -9,6 +9,14 @@ Python standard library, which follows Unicode Standard Annex #11
 (East Asian Width).  No external dependency (e.g. ``wcwidth``) is
 required.
 
+Grapheme cluster support
+------------------------
+The :func:`grapheme_width`, :func:`grapheme_string_width`, and
+:func:`iter_grapheme_clusters` functions provide width calculation
+that accounts for multi-codepoint grapheme clusters — user-perceived
+characters that consist of several Unicode codepoints (e.g. base
+character + combining marks, emoji ZWJ sequences, flag sequences).
+
 Caveats
 -------
 - **Terminal disagreement.**  UAX #11 is a guideline, not a mandate.
@@ -38,11 +46,19 @@ Caveats
   ``A`` (e.g. some Greek, Cyrillic, and mathematical symbols) are
   treated as width 1 here.  In CJK locale contexts, some terminals
   render these at width 2.  This module does not account for locale.
+- **Simplified grapheme segmentation.**  :func:`iter_grapheme_clusters`
+  does NOT implement full UAX #29 (Unicode Text Segmentation).  It
+  handles the most common cases — combining marks, ZWJ sequences,
+  variation selectors, emoji modifiers, and regional indicator pairs —
+  but may mis-segment complex scripts (Indic scripts with virama/halant,
+  complex emoji tag sequences).  For full correctness, use the
+  third-party ``grapheme`` package.
 """
 
 from __future__ import annotations
 
 import unicodedata
+from typing import Iterator
 
 # East Asian Width values that indicate a 2-column character.
 _WIDE_EAW_VALUES = frozenset({"W", "F"})  # Wide, Fullwidth
@@ -142,3 +158,207 @@ def is_wide_char(ch: str) -> bool:
     True
     """
     return char_width(ch) == 2
+
+
+# ---------------------------------------------------------------------------
+# Grapheme cluster segmentation and width
+# ---------------------------------------------------------------------------
+
+# Zero-Width Joiner — joins adjacent characters into a single grapheme
+# cluster (used in emoji ZWJ sequences like family/profession emoji).
+_ZWJ = "\u200D"
+
+# Variation selectors change the presentation of the preceding character.
+# VS1–VS16 (U+FE00–U+FE0F).  VS16 (U+FE0F) is the emoji presentation
+# selector — it requests that the preceding character be rendered as a
+# colorful emoji glyph rather than a text glyph.
+_VARIATION_SELECTOR_START = 0xFE00
+_VARIATION_SELECTOR_END = 0xFE0F
+
+# Regional indicator symbols (U+1F1E6–U+1F1FF) combine in pairs to form
+# flag emoji (e.g. U+1F1FA U+1F1F8 = 🇺🇸).
+_REGIONAL_INDICATOR_START = 0x1F1E6
+_REGIONAL_INDICATOR_END = 0x1F1FF
+
+# Emoji skin tone modifiers (U+1F3FB–U+1F3FF) — Fitzpatrick scale.
+_EMOJI_MODIFIER_START = 0x1F3FB
+_EMOJI_MODIFIER_END = 0x1F3FF
+
+
+def _is_regional_indicator(ch: str) -> bool:
+    """Return True if *ch* is a Regional Indicator Symbol."""
+    cp = ord(ch)
+    return _REGIONAL_INDICATOR_START <= cp <= _REGIONAL_INDICATOR_END
+
+
+def _is_variation_selector(ch: str) -> bool:
+    """Return True if *ch* is a variation selector (VS1–VS16)."""
+    cp = ord(ch)
+    return _VARIATION_SELECTOR_START <= cp <= _VARIATION_SELECTOR_END
+
+
+def _is_emoji_modifier(ch: str) -> bool:
+    """Return True if *ch* is an emoji skin tone modifier."""
+    cp = ord(ch)
+    return _EMOJI_MODIFIER_START <= cp <= _EMOJI_MODIFIER_END
+
+
+def _is_combining(ch: str) -> bool:
+    """Return True if *ch* is a combining mark (Mn, Me, or Mc)."""
+    return unicodedata.category(ch) in {"Mn", "Me", "Mc"}
+
+
+def iter_grapheme_clusters(text: str) -> Iterator[str]:
+    """Yield approximate grapheme clusters from *text*.
+
+    A grapheme cluster is a user-perceived character that may consist of
+    multiple Unicode codepoints.  This function groups codepoints into
+    clusters using simplified rules that cover common cases:
+
+    - Base character + combining marks (e.g. ``e`` + combining acute)
+    - ZWJ sequences (e.g. family/profession emoji)
+    - Variation selectors (VS1–VS16)
+    - Regional indicator pairs (flag emoji)
+    - Emoji skin tone modifiers
+
+    Caveats
+    -------
+    - Does **not** implement full UAX #29 grapheme cluster segmentation.
+    - May mis-segment complex scripts with virama/halant joining (e.g.
+      Devanagari conjuncts) or emoji tag sequences (U+E0020–U+E007F).
+    - For full correctness, use the third-party ``grapheme`` package.
+
+    Examples
+    --------
+    >>> list(iter_grapheme_clusters("Hello"))
+    ['H', 'e', 'l', 'l', 'o']
+    >>> list(iter_grapheme_clusters("e\\u0301"))  # e + combining acute
+    ['e\\u0301']
+    """
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        cluster = ch
+        i += 1
+
+        # Regional indicator pairs form flag emoji (always consumed in
+        # pairs; a lone trailing indicator becomes its own cluster).
+        if _is_regional_indicator(ch):
+            if i < n and _is_regional_indicator(text[i]):
+                cluster += text[i]
+                i += 1
+            # Absorb any trailing combining marks / variation selectors.
+            while i < n and (
+                _is_combining(text[i]) or _is_variation_selector(text[i])
+            ):
+                cluster += text[i]
+                i += 1
+            yield cluster
+            continue
+
+        # Absorb combining marks, variation selectors, emoji modifiers,
+        # and ZWJ-joined continuations into the current cluster.
+        while i < n:
+            next_ch = text[i]
+            if (
+                _is_combining(next_ch)
+                or _is_variation_selector(next_ch)
+                or _is_emoji_modifier(next_ch)
+            ):
+                cluster += next_ch
+                i += 1
+            elif next_ch == _ZWJ and i + 1 < n:
+                # ZWJ joins the next character into this cluster.
+                cluster += next_ch + text[i + 1]
+                i += 2
+            else:
+                break
+
+        yield cluster
+
+
+def grapheme_width(grapheme: str) -> int:
+    """Return the terminal display width of a grapheme cluster.
+
+    A grapheme cluster is a user-perceived character that may consist of
+    multiple Unicode codepoints.  The display width is determined by the
+    base (first) character of the cluster, with one exception: if the
+    cluster contains VS16 (U+FE0F, emoji presentation selector) and has
+    more than one codepoint, the width is 2 — VS16 requests emoji
+    presentation, which most modern terminals render at double width.
+
+    For single codepoints this is equivalent to :func:`char_width`
+    (without the single-character validation).
+
+    Caveats
+    -------
+    - Terminal emulators disagree on emoji width.  The VS16 heuristic
+      works for most modern terminals but is not guaranteed.
+    - ZWJ sequence width is based on the leading character.  Some
+      terminals may render these wider or narrower than reported.
+
+    Parameters
+    ----------
+    grapheme : str
+        One or more codepoints representing a single grapheme cluster.
+
+    Returns
+    -------
+    int
+        The display width: 0, 1, or 2.
+
+    Examples
+    --------
+    >>> grapheme_width("A")
+    1
+    >>> grapheme_width("中")
+    2
+    >>> grapheme_width("e\\u0301")  # e + combining acute
+    1
+    """
+    if not grapheme:
+        return 0
+
+    base = grapheme[0]
+    category = unicodedata.category(base)
+    if category in _ZERO_WIDTH_CATEGORIES:
+        return 0
+
+    eaw = unicodedata.east_asian_width(base)
+    if eaw in _WIDE_EAW_VALUES:
+        return 2
+
+    # VS16 (U+FE0F) requests emoji presentation, which typically renders
+    # at width 2 on modern terminals.  Only apply this when the cluster
+    # has multiple codepoints (a lone VS16 would be zero-width).
+    if len(grapheme) > 1 and "\uFE0F" in grapheme:
+        return 2
+
+    return 1
+
+
+def grapheme_string_width(text: str) -> int:
+    """Return the total display width of *text* using grapheme clusters.
+
+    Unlike :func:`string_width`, this function segments the text into
+    grapheme clusters before calculating width.  This gives more accurate
+    results for text containing multi-codepoint sequences like emoji ZWJ
+    sequences, flag emoji, or characters with combining marks.
+
+    For ASCII and simple Unicode text without combining characters or
+    multi-codepoint sequences, this returns the same result as
+    :func:`string_width` but is slightly slower due to the segmentation
+    overhead.  Prefer :func:`string_width` for performance-critical paths
+    that only handle simple text.
+
+    Examples
+    --------
+    >>> grapheme_string_width("Hello")
+    5
+    >>> grapheme_string_width("中文")
+    4
+    >>> grapheme_string_width("e\\u0301")  # e + combining acute
+    1
+    """
+    return sum(grapheme_width(cluster) for cluster in iter_grapheme_clusters(text))

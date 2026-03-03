@@ -47,7 +47,14 @@ from wyby.diagnostics import (
 )
 from wyby.event import Event, EventQueue
 from wyby.grid import Cell, CellBuffer, clip_to_terminal
-from wyby.unicode import char_width, is_wide_char, string_width
+from wyby.unicode import (
+    char_width,
+    grapheme_string_width,
+    grapheme_width,
+    is_wide_char,
+    iter_grapheme_clusters,
+    string_width,
+)
 from wyby.layer import Layer, LayerStack
 from wyby.render_warnings import (
     RenderCost,
@@ -88,6 +95,8 @@ __all__ = [
     "TerminalCapabilities",
     "char_width",
     "color_system_for_support",
+    "grapheme_string_width",
+    "grapheme_width",
     "check_flicker_risk",
     "configure_logging",
     "create_console",
@@ -98,6 +107,7 @@ __all__ = [
     "estimate_render_cost",
     "get_terminal_size",
     "is_wide_char",
+    "iter_grapheme_clusters",
     "log_render_cost",
     "nearest_ansi16",
     "nearest_ansi256",
