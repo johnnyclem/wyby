@@ -34,7 +34,7 @@ from wyby.alt_screen import AltScreen, disable_alt_screen, enable_alt_screen
 from wyby.app import Engine, EngineConfig, QuitSignal
 from wyby.diagnostics import FPSCounter
 from wyby.event import Event, EventQueue
-from wyby.renderer import LiveDisplay, create_console
+from wyby.renderer import LiveDisplay, Renderer, create_console
 from wyby.resize import ResizeHandler, get_terminal_size
 from wyby.scene import Scene, SceneStack
 
@@ -53,6 +53,7 @@ __all__ = [
     "FPSCounter",
     "LiveDisplay",
     "QuitSignal",
+    "Renderer",
     "ResizeHandler",
     "Scene",
     "SceneStack",

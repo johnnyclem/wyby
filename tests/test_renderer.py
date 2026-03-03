@@ -8,7 +8,7 @@ import pytest
 from rich.console import Console
 from rich.text import Text
 
-from wyby.renderer import LiveDisplay, create_console
+from wyby.renderer import LiveDisplay, Renderer, create_console
 
 
 # ---------------------------------------------------------------------------
@@ -362,3 +362,292 @@ class TestEngineConsoleIntegration:
 
         with pytest.raises(TypeError, match="rich.console.Console"):
             Engine(console="bad")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Renderer — construction
+# ---------------------------------------------------------------------------
+
+
+class TestRendererInit:
+    """Tests for Renderer construction."""
+
+    def test_default_console_created(self) -> None:
+        """When no console is provided, one is created automatically."""
+        renderer = Renderer()
+        assert isinstance(renderer.console, Console)
+
+    def test_custom_console(self) -> None:
+        console = Console(file=io.StringIO(), force_terminal=True)
+        renderer = Renderer(console=console)
+        assert renderer.console is console
+
+    def test_not_started_initially(self) -> None:
+        renderer = Renderer(
+            console=Console(file=io.StringIO(), force_terminal=True)
+        )
+        assert renderer.is_started is False
+
+    def test_frame_count_zero_initially(self) -> None:
+        renderer = Renderer(
+            console=Console(file=io.StringIO(), force_terminal=True)
+        )
+        assert renderer.frame_count == 0
+
+    def test_rejects_non_console_string(self) -> None:
+        with pytest.raises(TypeError, match="rich.console.Console"):
+            Renderer(console="not a console")  # type: ignore[arg-type]
+
+    def test_rejects_non_console_int(self) -> None:
+        with pytest.raises(TypeError, match="rich.console.Console"):
+            Renderer(console=42)  # type: ignore[arg-type]
+
+    def test_accepts_none_explicitly(self) -> None:
+        renderer = Renderer(console=None)
+        assert isinstance(renderer.console, Console)
+
+    def test_has_live_display(self) -> None:
+        renderer = Renderer(
+            console=Console(file=io.StringIO(), force_terminal=True)
+        )
+        assert isinstance(renderer.live_display, LiveDisplay)
+
+    def test_live_display_shares_console(self) -> None:
+        console = Console(file=io.StringIO(), force_terminal=True)
+        renderer = Renderer(console=console)
+        assert renderer.live_display.console is console
+
+
+# ---------------------------------------------------------------------------
+# Renderer — lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestRendererLifecycle:
+    """Tests for Renderer start/stop lifecycle."""
+
+    @staticmethod
+    def _make_renderer() -> Renderer:
+        console = Console(file=io.StringIO(), force_terminal=True)
+        return Renderer(console=console)
+
+    def test_start_sets_is_started(self) -> None:
+        renderer = self._make_renderer()
+        renderer.start()
+        try:
+            assert renderer.is_started is True
+        finally:
+            renderer.stop()
+
+    def test_stop_clears_is_started(self) -> None:
+        renderer = self._make_renderer()
+        renderer.start()
+        renderer.stop()
+        assert renderer.is_started is False
+
+    def test_double_start_is_noop(self) -> None:
+        """Calling start() twice should not raise or reset frame count."""
+        renderer = self._make_renderer()
+        renderer.start()
+        try:
+            renderer.present(Text("frame"))
+            assert renderer.frame_count == 1
+            renderer.start()  # Should be a no-op
+            assert renderer.is_started is True
+            # Frame count should NOT be reset by a redundant start().
+            assert renderer.frame_count == 1
+        finally:
+            renderer.stop()
+
+    def test_stop_without_start_is_noop(self) -> None:
+        renderer = self._make_renderer()
+        renderer.stop()  # Should not raise
+        assert renderer.is_started is False
+
+    def test_double_stop_is_noop(self) -> None:
+        renderer = self._make_renderer()
+        renderer.start()
+        renderer.stop()
+        renderer.stop()  # Should not raise
+        assert renderer.is_started is False
+
+    def test_restart_after_stop(self) -> None:
+        """A stopped renderer can be started again."""
+        renderer = self._make_renderer()
+        renderer.start()
+        renderer.stop()
+        renderer.start()
+        try:
+            assert renderer.is_started is True
+        finally:
+            renderer.stop()
+
+    def test_start_resets_frame_count(self) -> None:
+        """Starting a fresh cycle resets the frame counter."""
+        renderer = self._make_renderer()
+        renderer.start()
+        renderer.present(Text("frame 1"))
+        renderer.present(Text("frame 2"))
+        assert renderer.frame_count == 2
+        renderer.stop()
+        renderer.start()
+        try:
+            assert renderer.frame_count == 0
+        finally:
+            renderer.stop()
+
+
+# ---------------------------------------------------------------------------
+# Renderer — context manager
+# ---------------------------------------------------------------------------
+
+
+class TestRendererContextManager:
+    """Tests for Renderer as a context manager."""
+
+    @staticmethod
+    def _make_renderer() -> Renderer:
+        console = Console(file=io.StringIO(), force_terminal=True)
+        return Renderer(console=console)
+
+    def test_starts_on_enter(self) -> None:
+        renderer = self._make_renderer()
+        with renderer:
+            assert renderer.is_started is True
+
+    def test_stops_on_exit(self) -> None:
+        renderer = self._make_renderer()
+        with renderer:
+            pass
+        assert renderer.is_started is False
+
+    def test_stops_on_exception(self) -> None:
+        renderer = self._make_renderer()
+        with pytest.raises(ValueError, match="test"):
+            with renderer:
+                assert renderer.is_started is True
+                raise ValueError("test")
+        assert renderer.is_started is False
+
+    def test_returns_self(self) -> None:
+        renderer = self._make_renderer()
+        with renderer as ctx:
+            assert ctx is renderer
+
+
+# ---------------------------------------------------------------------------
+# Renderer — present
+# ---------------------------------------------------------------------------
+
+
+class TestRendererPresent:
+    """Tests for Renderer.present()."""
+
+    @staticmethod
+    def _make_renderer() -> Renderer:
+        console = Console(file=io.StringIO(), force_terminal=True)
+        return Renderer(console=console)
+
+    def test_present_with_text(self) -> None:
+        renderer = self._make_renderer()
+        with renderer:
+            renderer.present(Text("hello world"))
+
+    def test_present_with_string(self) -> None:
+        renderer = self._make_renderer()
+        with renderer:
+            renderer.present("hello world")
+
+    def test_present_increments_frame_count(self) -> None:
+        renderer = self._make_renderer()
+        with renderer:
+            assert renderer.frame_count == 0
+            renderer.present(Text("frame 1"))
+            assert renderer.frame_count == 1
+            renderer.present(Text("frame 2"))
+            assert renderer.frame_count == 2
+
+    def test_present_when_not_started_is_noop(self) -> None:
+        """present() before start() should silently do nothing."""
+        renderer = self._make_renderer()
+        renderer.present(Text("hello"))  # Should not raise
+        assert renderer.frame_count == 0
+
+    def test_present_after_stop_is_noop(self) -> None:
+        renderer = self._make_renderer()
+        renderer.start()
+        renderer.stop()
+        renderer.present(Text("hello"))  # Should not raise
+        assert renderer.frame_count == 0
+
+    def test_present_does_not_increment_when_stopped(self) -> None:
+        """Frame count should not increase for no-op presents."""
+        renderer = self._make_renderer()
+        renderer.present(Text("a"))
+        renderer.present(Text("b"))
+        assert renderer.frame_count == 0
+
+    def test_multiple_presents(self) -> None:
+        """Successive presents should replace the displayed content."""
+        renderer = self._make_renderer()
+        with renderer:
+            for i in range(10):
+                renderer.present(Text(f"Frame {i}"))
+            assert renderer.frame_count == 10
+
+
+# ---------------------------------------------------------------------------
+# Renderer — repr
+# ---------------------------------------------------------------------------
+
+
+class TestRendererRepr:
+    """Tests for Renderer.__repr__."""
+
+    def test_repr_when_not_started(self) -> None:
+        console = Console(file=io.StringIO(), force_terminal=True)
+        renderer = Renderer(console=console)
+        r = repr(renderer)
+        assert "started=False" in r
+        assert "Renderer" in r
+        assert "frame_count=0" in r
+
+    def test_repr_when_started(self) -> None:
+        console = Console(file=io.StringIO(), force_terminal=True)
+        renderer = Renderer(console=console)
+        renderer.start()
+        try:
+            r = repr(renderer)
+            assert "started=True" in r
+        finally:
+            renderer.stop()
+
+    def test_repr_shows_frame_count(self) -> None:
+        console = Console(file=io.StringIO(), force_terminal=True)
+        renderer = Renderer(console=console)
+        renderer.start()
+        try:
+            renderer.present(Text("frame"))
+            r = repr(renderer)
+            assert "frame_count=1" in r
+        finally:
+            renderer.stop()
+
+
+# ---------------------------------------------------------------------------
+# Renderer — package export
+# ---------------------------------------------------------------------------
+
+
+class TestRendererExport:
+    """Tests for Renderer availability in the public API."""
+
+    def test_importable_from_wyby(self) -> None:
+        from wyby import Renderer as R  # noqa: N811
+
+        assert R is Renderer
+
+    def test_in_all(self) -> None:
+        import wyby
+
+        assert "Renderer" in wyby.__all__

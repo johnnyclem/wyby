@@ -5,7 +5,7 @@ to Rich's terminal rendering capabilities.  It wraps Rich's
 :class:`~rich.console.Console` and :class:`~rich.live.Live` objects
 with game-appropriate configuration and lifecycle management.
 
-The two main exports are:
+The three main exports are:
 
 - :func:`create_console` — factory function that creates a Rich
   ``Console`` with sensible defaults for game rendering (Rich markup
@@ -13,10 +13,13 @@ The two main exports are:
 - :class:`LiveDisplay` — lifecycle manager for Rich ``Live`` that
   provides start/stop/update semantics with ``auto_refresh`` disabled
   so the game loop controls frame timing.
+- :class:`Renderer` — high-level rendering coordinator that wraps
+  :class:`LiveDisplay` and provides a game-loop-friendly API for
+  pushing frames to the terminal.  This is the primary interface
+  that the :class:`~wyby.app.Engine` tick loop uses for output.
 
-These components form the output foundation that the higher-level
-Renderer class will build upon.  Game code can also use them directly
-for custom rendering.
+Game code can use :class:`Renderer` directly, or drop down to
+:class:`LiveDisplay` and :func:`create_console` for custom rendering.
 
 Caveats:
     - Rich's ``Live`` display is **not** a double-buffered graphics
@@ -333,4 +336,225 @@ class LiveDisplay:
         return (
             f"LiveDisplay(started={self._started}, "
             f"console={self._console!r})"
+        )
+
+
+class Renderer:
+    """High-level rendering coordinator that wraps :class:`LiveDisplay`.
+
+    ``Renderer`` is the primary interface between the game loop and the
+    terminal.  It owns a :class:`LiveDisplay` (and by extension a Rich
+    :class:`~rich.console.Console`) and provides a :meth:`present`
+    method for pushing renderables to the screen each tick.
+
+    Typical usage from the engine's tick loop::
+
+        renderer = Renderer(console)
+        renderer.start()
+        try:
+            # Each tick:
+            renderable = scene.render()
+            renderer.present(renderable)
+        finally:
+            renderer.stop()
+
+    Or as a context manager::
+
+        with Renderer(console) as renderer:
+            renderer.present(Text("Frame 1"))
+            renderer.present(Text("Frame 2"))
+
+    Args:
+        console: A :class:`rich.console.Console` to render to.  If
+            ``None``, a new Console is created via :func:`create_console`
+            with default (auto-detected) settings.
+
+    Raises:
+        TypeError: If *console* is not a :class:`~rich.console.Console`
+            instance or ``None``.
+
+    Caveats:
+        - Rich's ``Live`` display is **not** double-buffered.  Each
+          :meth:`present` call triggers a full re-render of the
+          renderable to the terminal.  There is no differential update
+          or dirty-region tracking — the entire renderable is serialised
+          to ANSI escape sequences and written to stdout on every frame.
+        - **Flicker** is possible on terminals with slow rendering
+          (notably Windows ``cmd.exe``, older ``conhost``, or terminals
+          over high-latency SSH connections).  Modern terminals (iTerm2,
+          WezTerm, Windows Terminal, kitty) handle rapid full-screen
+          writes well, but flicker-free rendering is not guaranteed.
+        - **CPU cost scales with renderable complexity.**  A large grid
+          (e.g., 120x40) of individually styled cells is measurably more
+          expensive than a plain text block.  Profile with
+          :class:`~wyby.diagnostics.FPSCounter` to measure actual
+          throughput in your environment.
+        - **Frame rate is terminal-dependent.**  15–30 FPS is realistic
+          on most modern terminals.  60 FPS is not a meaningful target
+          for terminal output — the terminal emulator's own rendering
+          pipeline (text shaping, GPU upload, compositing) is the
+          bottleneck, not wyby.
+        - ``present()`` is **synchronous** — it blocks until the
+          terminal write completes.  On slow terminals or over SSH,
+          this is the main source of frame-rate limitation.
+        - **Cursor is hidden** while the renderer is started.  If the
+          process is killed by ``SIGKILL`` between ``start()`` and
+          ``stop()``, the cursor will remain hidden.  Run ``tput cnorm``
+          or ``reset`` in the terminal to recover.
+        - The renderer does **not** manage the alternate screen buffer.
+          Use :class:`~wyby.alt_screen.AltScreen` as an outer context
+          manager to enter/exit the alt screen.  This separation allows
+          crash recovery to restore the terminal even if the renderer
+          fails to stop cleanly.
+        - **Do not call** ``console.print()`` while the renderer is
+          started.  Rich's ``Live`` conflicts with direct console
+          writes, causing display corruption (interleaved output,
+          phantom lines, broken cursor positioning).  Use logging
+          (to stderr or a file) for debug output during gameplay.
+        - ``present()`` when not started is a silent no-op, allowing
+          game code to call it unconditionally without checking
+          :attr:`is_started`.
+        - ``stop()`` is idempotent — safe to call multiple times or
+          when never started.
+        - Terminal character cells have an approximately **1:2 aspect
+          ratio** (taller than wide).  The renderer does not apply any
+          aspect-ratio correction — a 10x10 cell grid will appear as a
+          tall rectangle on screen.  Games must account for cell shape
+          in their rendering logic.
+    """
+
+    __slots__ = ("_live_display", "_frame_count")
+
+    def __init__(self, console: Console | None = None) -> None:
+        if console is not None and not isinstance(console, Console):
+            raise TypeError(
+                f"console must be a rich.console.Console or None, "
+                f"got {type(console).__name__}"
+            )
+        # The LiveDisplay validates the console and creates a default
+        # one if None is passed, so we delegate directly.
+        self._live_display = LiveDisplay(console=console)
+        self._frame_count: int = 0
+
+    @property
+    def console(self) -> Console:
+        """The Rich Console used for terminal output.
+
+        Caveats:
+            - Do not call ``console.print()`` while the renderer is
+              started — it will corrupt the Live display output.
+        """
+        return self._live_display.console
+
+    @property
+    def live_display(self) -> LiveDisplay:
+        """The underlying :class:`LiveDisplay`.
+
+        Exposed for advanced use cases (e.g., passing to the engine
+        for shutdown management).  Prefer using :meth:`present` over
+        calling ``live_display.update()`` directly.
+        """
+        return self._live_display
+
+    @property
+    def is_started(self) -> bool:
+        """Whether the renderer is currently active and accepting frames."""
+        return self._live_display.is_started
+
+    @property
+    def frame_count(self) -> int:
+        """Number of frames presented since the last :meth:`start`.
+
+        Reset to 0 on each ``start()`` call.  Not incremented by
+        ``present()`` calls made while the renderer is stopped (those
+        are no-ops).
+        """
+        return self._frame_count
+
+    def start(self) -> None:
+        """Start the renderer and prepare for frame output.
+
+        Starts the underlying :class:`LiveDisplay`, which hides the
+        terminal cursor and prepares Rich's ``Live`` context for
+        receiving frame updates via :meth:`present`.
+
+        Resets :attr:`frame_count` to 0.  Calling ``start()`` when
+        already started is a no-op (the frame count is **not** reset).
+
+        Caveats:
+            - Writes cursor-hiding escape sequences to the terminal
+              immediately.  If stdout is not a TTY, Rich handles this
+              gracefully (no-op).
+            - The alternate screen buffer is **not** entered.  Use
+              :class:`~wyby.alt_screen.AltScreen` separately.
+        """
+        if self._live_display.is_started:
+            _logger.debug(
+                "Renderer.start() called while already started, ignoring"
+            )
+            return
+        self._frame_count = 0
+        self._live_display.start()
+        _logger.debug("Renderer started")
+
+    def stop(self) -> None:
+        """Stop the renderer and restore terminal state.
+
+        Stops the underlying :class:`LiveDisplay`, which restores
+        cursor visibility.  The last frame remains visible on the
+        terminal (``transient=False`` on the underlying ``Live``).
+
+        Idempotent — safe to call multiple times or when not started.
+        """
+        self._live_display.stop()
+        _logger.debug("Renderer stopped")
+
+    def present(self, renderable: RenderableType) -> None:
+        """Push a renderable to the terminal as the current frame.
+
+        Replaces the currently displayed content and immediately
+        triggers a full re-render to the terminal.  This is the
+        method that the game loop calls once per tick after the
+        active scene has prepared its visual output.
+
+        Args:
+            renderable: Any Rich renderable — :class:`~rich.text.Text`,
+                :class:`~rich.table.Table`, :class:`~rich.panel.Panel`,
+                a plain string, or any object implementing
+                ``__rich__()`` or ``__rich_console__()``.
+
+        Caveats:
+            - No-op if the renderer is not started.  Does not raise.
+            - Each call triggers a **full** re-render.  For complex
+              renderables (large styled grids), this is the main
+              performance bottleneck.
+            - The write is synchronous — ``present()`` blocks until
+              the terminal write completes.
+            - There is no frame batching or coalescing.  If
+              ``present()`` is called multiple times per tick, each
+              call writes to the terminal independently.  The game
+              loop should call ``present()`` exactly once per tick.
+        """
+        if not self._live_display.is_started:
+            return
+        self._live_display.update(renderable)
+        self._frame_count += 1
+
+    def __enter__(self) -> Renderer:
+        self.start()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object | None,
+    ) -> None:
+        self.stop()
+
+    def __repr__(self) -> str:
+        return (
+            f"Renderer(started={self.is_started}, "
+            f"frame_count={self._frame_count}, "
+            f"console={self.console!r})"
         )
