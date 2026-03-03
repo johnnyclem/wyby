@@ -95,6 +95,7 @@ Caveats:
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import time
 
@@ -153,6 +154,85 @@ _MAX_FRAME_SKIP = 5
 # granularity is typically 1–10 ms; sleeping for less than 1 ms is
 # unreliable and may actually sleep longer than intended.
 _SLEEP_THRESHOLD = 0.001
+
+
+def _validate_title(title: object) -> str:
+    """Validate and return the title, or raise TypeError/ValueError."""
+    if not isinstance(title, str):
+        raise TypeError(
+            f"title must be a str, got {type(title).__name__}"
+        )
+    if not title.strip():
+        raise ValueError("title must not be empty or blank")
+    return title
+
+
+def _validate_int_field(
+    name: str, value: object, min_val: int, max_val: int
+) -> int:
+    """Validate an integer field with range bounds, or raise."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TypeError(
+            f"{name} must be an int, got {type(value).__name__}"
+        )
+    if not (min_val <= value <= max_val):
+        raise ValueError(
+            f"{name} must be between {min_val} and {max_val}, "
+            f"got {value}"
+        )
+    return value
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class EngineConfig:
+    """Immutable configuration object for :class:`Engine` options.
+
+    Bundles all engine-level settings into a single object that can be
+    constructed, inspected, and passed around before the engine is
+    created.  Validation runs at construction time via ``__post_init__``,
+    so an ``EngineConfig`` instance is always in a valid state.
+
+    Args:
+        title: Window/application title. Used for diagnostic output.
+            Defaults to ``"wyby"``.
+        width: Logical grid width in character cells. Must be between 1
+            and 1000 inclusive. Defaults to 80.
+        height: Logical grid height in character cells. Must be between 1
+            and 1000 inclusive. Defaults to 24.
+        tps: Target ticks per second. Must be between 1 and 240
+            inclusive. Defaults to 30.
+        debug: Enable verbose logging to stderr. Defaults to ``False``.
+        show_fps: Enable FPS counter tracking. Defaults to ``False``.
+
+    Caveats:
+        - ``EngineConfig`` is **frozen** — fields cannot be reassigned
+          after construction.  To change a value, use
+          :func:`dataclasses.replace` to create a modified copy.
+        - ``width`` and ``height`` describe the logical game grid, not
+          the terminal window size.  If the grid exceeds the terminal,
+          output will wrap or clip.  Terminal resize detection is
+          separate from the config.
+        - ``debug`` and ``show_fps`` accept any truthy/falsy value
+          (they are coerced to ``bool``), but all other fields are
+          strictly type-checked.
+    """
+
+    title: str = _DEFAULT_TITLE
+    width: int = _DEFAULT_WIDTH
+    height: int = _DEFAULT_HEIGHT
+    tps: int = _DEFAULT_TPS
+    debug: bool = False
+    show_fps: bool = False
+
+    def __post_init__(self) -> None:
+        _validate_title(self.title)
+        _validate_int_field("width", self.width, _MIN_WIDTH, _MAX_WIDTH)
+        _validate_int_field("height", self.height, _MIN_HEIGHT, _MAX_HEIGHT)
+        _validate_int_field("tps", self.tps, _MIN_TPS, _MAX_TPS)
+        # Coerce debug and show_fps to strict bool.  Using
+        # object.__setattr__ because the dataclass is frozen.
+        object.__setattr__(self, "debug", bool(self.debug))
+        object.__setattr__(self, "show_fps", bool(self.show_fps))
 
 
 class QuitSignal(Exception):
@@ -239,6 +319,7 @@ class Engine:
     """
 
     __slots__ = (
+        "_config",
         "_title",
         "_width",
         "_height",
@@ -265,49 +346,40 @@ class Engine:
         tps: int = _DEFAULT_TPS,
         debug: bool = False,
         show_fps: bool = False,
+        *,
+        config: EngineConfig | None = None,
     ) -> None:
-        if not isinstance(title, str):
-            raise TypeError(
-                f"title must be a str, got {type(title).__name__}"
-            )
-        if not title.strip():
-            raise ValueError("title must not be empty or blank")
-
-        if not isinstance(width, int) or isinstance(width, bool):
-            raise TypeError(
-                f"width must be an int, got {type(width).__name__}"
-            )
-        if not isinstance(height, int) or isinstance(height, bool):
-            raise TypeError(
-                f"height must be an int, got {type(height).__name__}"
-            )
-        if not isinstance(tps, int) or isinstance(tps, bool):
-            raise TypeError(
-                f"tps must be an int, got {type(tps).__name__}"
-            )
-
-        if not (_MIN_WIDTH <= width <= _MAX_WIDTH):
-            raise ValueError(
-                f"width must be between {_MIN_WIDTH} and {_MAX_WIDTH}, "
-                f"got {width}"
-            )
-        if not (_MIN_HEIGHT <= height <= _MAX_HEIGHT):
-            raise ValueError(
-                f"height must be between {_MIN_HEIGHT} and {_MAX_HEIGHT}, "
-                f"got {height}"
-            )
-        if not (_MIN_TPS <= tps <= _MAX_TPS):
-            raise ValueError(
-                f"tps must be between {_MIN_TPS} and {_MAX_TPS}, "
-                f"got {tps}"
+        if config is not None:
+            # When a config object is provided, use its values.
+            # Caveat: if both a config and keyword arguments are supplied,
+            # the config takes precedence and the keyword arguments are
+            # silently ignored.  This avoids ambiguity — callers should
+            # use one style or the other, not both.
+            if not isinstance(config, EngineConfig):
+                raise TypeError(
+                    f"config must be an EngineConfig, "
+                    f"got {type(config).__name__}"
+                )
+            self._config = config
+        else:
+            # Build a config from the individual keyword arguments.
+            # EngineConfig.__post_init__ handles all validation.
+            self._config = EngineConfig(
+                title=title,
+                width=width,
+                height=height,
+                tps=tps,
+                debug=debug,
+                show_fps=show_fps,
             )
 
-        self._title = title
-        self._width = width
-        self._height = height
-        self._tps = tps
-        self._target_dt = 1.0 / tps
-        self._debug = bool(debug)
+        cfg = self._config
+        self._title = cfg.title
+        self._width = cfg.width
+        self._height = cfg.height
+        self._tps = cfg.tps
+        self._target_dt = 1.0 / cfg.tps
+        self._debug = cfg.debug
 
         # Caveat: calling configure_logging() is additive — each call adds
         # a new handler. Creating multiple Engine(debug=True) instances will
@@ -317,7 +389,7 @@ class Engine:
         if self._debug:
             configure_logging(level=logging.DEBUG)
 
-        self._show_fps = bool(show_fps)
+        self._show_fps = cfg.show_fps
         # Caveat: the FPS counter tracks wall-clock tick intervals, not
         # actual Rich render throughput (the renderer is not yet connected).
         # Reported FPS includes time spent sleeping between ticks, so at
@@ -375,6 +447,15 @@ class Engine:
     def show_fps(self) -> bool:
         """Whether the FPS counter is enabled."""
         return self._show_fps
+
+    @property
+    def config(self) -> EngineConfig:
+        """The :class:`EngineConfig` snapshot used to initialise this engine.
+
+        Returns a frozen dataclass — fields cannot be mutated.  To create
+        a modified config, use ``dataclasses.replace(engine.config, tps=60)``.
+        """
+        return self._config
 
     @property
     def fps_counter(self) -> FPSCounter | None:

@@ -31,7 +31,7 @@ are functional.
 
 from wyby._logging import configure_logging, setup_null_handler
 from wyby.alt_screen import AltScreen, disable_alt_screen, enable_alt_screen
-from wyby.app import Engine, QuitSignal
+from wyby.app import Engine, EngineConfig, QuitSignal
 from wyby.diagnostics import FPSCounter
 from wyby.event import Event, EventQueue
 from wyby.resize import ResizeHandler, get_terminal_size
@@ -46,6 +46,7 @@ setup_null_handler()
 __all__ = [
     "AltScreen",
     "Engine",
+    "EngineConfig",
     "Event",
     "EventQueue",
     "FPSCounter",
