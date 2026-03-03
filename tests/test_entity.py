@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from wyby.component import Component
 from wyby.entity import Entity
 
 
@@ -314,6 +315,196 @@ class TestEntityIdReadOnly:
         e = Entity()
         with pytest.raises(AttributeError):
             e.id = 999  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Component helpers
+# ---------------------------------------------------------------------------
+
+
+class _Health(Component):
+    """Concrete component for testing add/remove."""
+
+    def __init__(self, hp: int = 100) -> None:
+        super().__init__()
+        self.hp = hp
+        self.attach_calls: list[int] = []
+        self.detach_calls: list[int] = []
+
+    def on_attach(self, entity: Entity) -> None:
+        self.attach_calls.append(entity.id)
+
+    def on_detach(self, entity: Entity) -> None:
+        self.detach_calls.append(entity.id)
+
+
+class _Velocity(Component):
+    """Second component type for multi-component tests."""
+
+    def __init__(self, vx: float = 0.0, vy: float = 0.0) -> None:
+        super().__init__()
+        self.vx = vx
+        self.vy = vy
+
+
+class _AdvancedHealth(_Health):
+    """Subclass of _Health — keyed separately (exact class match)."""
+    pass
+
+
+# ---------------------------------------------------------------------------
+# add_component
+# ---------------------------------------------------------------------------
+
+
+class TestAddComponent:
+    """Entity.add_component attaches a component and calls on_attach."""
+
+    def test_add_sets_entity_back_reference(self) -> None:
+        e = Entity(entity_id=1)
+        h = _Health()
+        e.add_component(h)
+        assert h.entity is e
+
+    def test_add_calls_on_attach(self) -> None:
+        e = Entity(entity_id=2)
+        h = _Health()
+        e.add_component(h)
+        assert h.attach_calls == [2]
+
+    def test_add_multiple_component_types(self) -> None:
+        e = Entity(entity_id=3)
+        h = _Health()
+        v = _Velocity(1.0, 2.0)
+        e.add_component(h)
+        e.add_component(v)
+        assert h.entity is e
+        assert v.entity is e
+
+    def test_add_subclass_and_base_are_separate(self) -> None:
+        """AdvancedHealth and Health are distinct types — both can be added."""
+        e = Entity(entity_id=4)
+        h = _Health()
+        ah = _AdvancedHealth()
+        e.add_component(h)
+        e.add_component(ah)
+        assert h.entity is e
+        assert ah.entity is e
+
+    def test_add_duplicate_type_raises_value_error(self) -> None:
+        e = Entity(entity_id=5)
+        e.add_component(_Health(50))
+        with pytest.raises(ValueError, match="already has"):
+            e.add_component(_Health(75))
+
+    def test_add_already_attached_raises_runtime_error(self) -> None:
+        e1 = Entity(entity_id=6)
+        e2 = Entity(entity_id=7)
+        h = _Health()
+        e1.add_component(h)
+        with pytest.raises(RuntimeError, match="already attached"):
+            e2.add_component(h)
+
+    def test_add_non_component_raises_type_error(self) -> None:
+        e = Entity(entity_id=8)
+        with pytest.raises(TypeError, match="must be a Component instance"):
+            e.add_component("not a component")  # type: ignore[arg-type]
+
+    def test_add_non_component_dict_raises_type_error(self) -> None:
+        e = Entity(entity_id=9)
+        with pytest.raises(TypeError, match="must be a Component instance"):
+            e.add_component({"hp": 100})  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# remove_component
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveComponent:
+    """Entity.remove_component detaches a component and calls on_detach."""
+
+    def test_remove_clears_entity_back_reference(self) -> None:
+        e = Entity(entity_id=10)
+        h = _Health()
+        e.add_component(h)
+        e.remove_component(_Health)
+        assert h.entity is None
+
+    def test_remove_calls_on_detach(self) -> None:
+        e = Entity(entity_id=11)
+        h = _Health()
+        e.add_component(h)
+        e.remove_component(_Health)
+        assert h.detach_calls == [11]
+
+    def test_remove_returns_the_component(self) -> None:
+        e = Entity(entity_id=12)
+        h = _Health(42)
+        e.add_component(h)
+        removed = e.remove_component(_Health)
+        assert removed is h
+        assert removed.hp == 42
+
+    def test_remove_nonexistent_raises_key_error(self) -> None:
+        e = Entity(entity_id=13)
+        with pytest.raises(KeyError, match="no.*_Health"):
+            e.remove_component(_Health)
+
+    def test_remove_wrong_type_raises_type_error(self) -> None:
+        e = Entity(entity_id=14)
+        with pytest.raises(TypeError, match="must be a Component subclass"):
+            e.remove_component("Health")  # type: ignore[arg-type]
+
+    def test_remove_non_subclass_raises_type_error(self) -> None:
+        e = Entity(entity_id=15)
+        with pytest.raises(TypeError, match="must be a Component subclass"):
+            e.remove_component(int)  # type: ignore[arg-type]
+
+    def test_remove_only_target_type(self) -> None:
+        """Removing one type leaves others untouched."""
+        e = Entity(entity_id=16)
+        h = _Health()
+        v = _Velocity()
+        e.add_component(h)
+        e.add_component(v)
+        e.remove_component(_Health)
+        assert h.entity is None
+        assert v.entity is e
+
+    def test_removed_component_can_be_reattached(self) -> None:
+        """After removal, the component can be added to another entity."""
+        e1 = Entity(entity_id=17)
+        e2 = Entity(entity_id=18)
+        h = _Health()
+        e1.add_component(h)
+        e1.remove_component(_Health)
+        e2.add_component(h)
+        assert h.entity is e2
+        assert h.attach_calls == [17, 18]
+
+    def test_on_detach_entity_still_set(self) -> None:
+        """During on_detach, component.entity still points to the entity."""
+        entity_during_detach = []
+
+        class _Spy(Component):
+            def on_detach(self, entity: Entity) -> None:
+                entity_during_detach.append(self.entity)
+
+        e = Entity(entity_id=19)
+        s = _Spy()
+        e.add_component(s)
+        e.remove_component(_Spy)
+        assert entity_during_detach == [e]
+        # After on_detach completes, entity is cleared.
+        assert s.entity is None
+
+    def test_remove_base_does_not_find_subclass(self) -> None:
+        """Exact class match — removing Health won't find AdvancedHealth."""
+        e = Entity(entity_id=20)
+        e.add_component(_AdvancedHealth())
+        with pytest.raises(KeyError):
+            e.remove_component(_Health)
 
 
 # ---------------------------------------------------------------------------

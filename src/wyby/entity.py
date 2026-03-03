@@ -46,7 +46,10 @@ from __future__ import annotations
 
 import itertools
 import logging
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
+
+if TYPE_CHECKING:
+    from wyby.component import Component
 
 _logger = logging.getLogger(__name__)
 
@@ -106,7 +109,7 @@ class Entity:
           the game — you must add it to your scene's entity collection.
     """
 
-    __slots__ = ("_id", "_x", "_y", "_tags")
+    __slots__ = ("_id", "_x", "_y", "_tags", "_components")
 
     def __init__(
         self,
@@ -142,6 +145,7 @@ class Entity:
 
         self._x = x
         self._y = y
+        self._components: dict[type[Component], Component] = {}
 
         # Validate and store tags.
         if tags is not None:
@@ -281,6 +285,117 @@ class Entity:
             KeyError: If the entity does not have the tag.
         """
         self._tags.remove(tag)  # raises KeyError if not found
+
+    def add_component(self, component: Component) -> None:
+        """Attach a component to this entity.
+
+        The component is stored keyed by its exact class
+        (``type(component)``).  After attachment, ``component.entity``
+        points back to this entity and :meth:`~wyby.component.Component.on_attach`
+        is called.
+
+        Args:
+            component: The component instance to attach.
+
+        Raises:
+            TypeError: If *component* is not a :class:`~wyby.component.Component`
+                instance.
+            RuntimeError: If *component* is already attached to another entity.
+                Detach it first.
+            ValueError: If this entity already has a component of the same type.
+
+        Caveats:
+            - **One component per type.**  An entity can hold at most one
+              instance of each component class.  If you need multiples
+              (e.g. multiple status effects), use a single component that
+              holds a list internally.
+            - **Keyed by exact class.**  If ``AdvancedHealth`` inherits from
+              ``Health``, they are separate component types.  Adding both is
+              allowed; querying for ``Health`` will not find ``AdvancedHealth``.
+            - **Single-entity ownership.**  A component instance can only be
+              attached to one entity at a time.  Attaching the same instance
+              to a second entity without detaching first raises
+              :class:`RuntimeError`.
+            - **on_attach runs synchronously** during this call.  Avoid
+              heavy work in that hook — defer it to ``update``.
+        """
+        from wyby.component import Component as _Component
+
+        if not isinstance(component, _Component):
+            raise TypeError(
+                f"component must be a Component instance, "
+                f"got {type(component).__name__}"
+            )
+        if component._entity is not None:
+            raise RuntimeError(
+                f"{type(component).__name__} is already attached to "
+                f"Entity(id={component._entity.id}); detach it first"
+            )
+        comp_type = type(component)
+        if comp_type in self._components:
+            raise ValueError(
+                f"Entity(id={self._id}) already has a "
+                f"{comp_type.__name__} component"
+            )
+        self._components[comp_type] = component
+        component._entity = self
+        component.on_attach(self)
+        _logger.debug(
+            "Component %s attached to Entity id=%d",
+            comp_type.__name__, self._id,
+        )
+
+    def remove_component(self, component_type: type[Component]) -> Component:
+        """Detach and return the component of the given type.
+
+        Calls :meth:`~wyby.component.Component.on_detach` before removing
+        the component, then clears the component's entity back-reference.
+
+        Args:
+            component_type: The exact class of the component to remove
+                (e.g. ``Health``, not an instance).
+
+        Returns:
+            The detached component instance.
+
+        Raises:
+            TypeError: If *component_type* is not a type, or is not a
+                subclass of :class:`~wyby.component.Component`.
+            KeyError: If this entity does not have a component of the
+                given type.
+
+        Caveats:
+            - **Exact class match only.**  Passing a base class will not
+              remove subclass components.  ``remove_component(Health)``
+              will not remove an ``AdvancedHealth`` component.
+            - **on_detach runs synchronously** during this call with
+              ``component.entity`` still set.  The back-reference is
+              cleared to ``None`` after ``on_detach`` returns.
+            - **The returned component can be re-attached** to another
+              entity (or the same one) via :meth:`add_component`.
+        """
+        from wyby.component import Component as _Component
+
+        if not isinstance(component_type, type) or not issubclass(
+            component_type, _Component
+        ):
+            raise TypeError(
+                f"component_type must be a Component subclass, "
+                f"got {component_type!r}"
+            )
+        if component_type not in self._components:
+            raise KeyError(
+                f"Entity(id={self._id}) has no "
+                f"{component_type.__name__} component"
+            )
+        component = self._components.pop(component_type)
+        component.on_detach(self)
+        component._entity = None
+        _logger.debug(
+            "Component %s detached from Entity id=%d",
+            component_type.__name__, self._id,
+        )
+        return component
 
     def move(self, dx: int, dy: int) -> None:
         """Move the entity by a relative offset.
