@@ -42,6 +42,12 @@ from wyby.color import (
     parse_color,
 )
 from wyby.component import Component
+from wyby.dithering import (
+    CELL_ASPECT_RATIO,
+    correct_aspect_ratio,
+    prepare_for_terminal,
+    quantize_for_terminal,
+)
 from wyby.entity import Entity
 from wyby.position import Position
 from wyby.sprite import Sprite, from_image, from_text
@@ -111,8 +117,10 @@ setup_null_handler()
 __all__ = [
     "AltScreen",
     "HiddenCursor",
+    "CELL_ASPECT_RATIO",
     "Cell",
     "CellBuffer",
+    "correct_aspect_ratio",
     "clip_to_terminal",
     "Component",
     "ColorSupport",
@@ -134,6 +142,7 @@ __all__ = [
     "Layer",
     "LayerStack",
     "LiveDisplay",
+    "quantize_for_terminal",
     "QuitSignal",
     "RenderCost",
     "Renderer",
@@ -172,6 +181,7 @@ __all__ = [
     "parse_input_events",
     "parse_key_events",
     "parse_color",
+    "prepare_for_terminal",
     "PLATFORM_CATEGORIES",
     "PLATFORM_DIFFERENCES",
     "PlatformDifference",
