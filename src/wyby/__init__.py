@@ -195,6 +195,15 @@ from wyby.controls_doc import (
     format_controls_reference,
     keys_by_category,
 )
+from wyby.limitations_caveats import (
+    LIMITATION_CATEGORIES,
+    LIMITATIONS,
+    Limitation,
+    format_limitations_doc,
+    format_limitations_for_category,
+    get_limitations_by_category,
+    get_limitations_by_severity,
+)
 from wyby.api_reference import (
     API_CAVEATS,
     API_MODULES,
@@ -385,6 +394,13 @@ __all__ = [
     "format_controls_doc",
     "format_controls_reference",
     "keys_by_category",
+    "LIMITATION_CATEGORIES",
+    "LIMITATIONS",
+    "Limitation",
+    "format_limitations_doc",
+    "format_limitations_for_category",
+    "get_limitations_by_category",
+    "get_limitations_by_severity",
     "API_CAVEATS",
     "API_MODULES",
     "ApiCaveat",
