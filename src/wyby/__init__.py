@@ -89,6 +89,7 @@ from wyby.renderer import LiveDisplay, Renderer, create_console
 from wyby.resize import ResizeHandler, get_terminal_size
 from wyby.scene import Scene, SceneStack
 from wyby.signal_handlers import SignalHandler
+from wyby.transition import Cut, FadeTransition, SlideTransition, Transition
 from wyby.terminal_test import (
     TERMINAL_CAVEATS,
     TestCard,
@@ -170,6 +171,10 @@ __all__ = [
     "show_cursor",
     "SignalHandler",
     "string_width",
+    "Cut",
+    "FadeTransition",
+    "SlideTransition",
+    "Transition",
     "TERMINAL_CAVEATS",
     "TestCard",
     "build_test_card",
