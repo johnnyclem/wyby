@@ -120,6 +120,7 @@ from wyby.button import Button
 from wyby.focus import FocusManager
 from wyby.healthbar import HealthBar
 from wyby.widget import Widget
+from wyby.layout import Alignment, HBox, VBox
 from wyby.cell_size_map import CellSizeMap
 from wyby.font_variance import (
     DEFAULT_CELL_ASPECT_RATIO,
@@ -245,6 +246,9 @@ __all__ = [
     "FocusManager",
     "HealthBar",
     "Widget",
+    "Alignment",
+    "HBox",
+    "VBox",
     "flip_h",
     "flip_v",
     "rotate_90",
