@@ -6,6 +6,7 @@ import logging
 
 import pytest
 
+from wyby.event import Event
 from wyby.scene import (
     Scene,
     SceneStack,
@@ -947,3 +948,77 @@ class TestSceneHooksWithoutSuperInit:
 
         scene = NoSuperScene()
         scene._fire_exit()  # Should not raise
+
+
+# ---------------------------------------------------------------------------
+# handle_events
+# ---------------------------------------------------------------------------
+
+
+class TestSceneHandleEvents:
+    """Scene.handle_events() — per-tick event delivery."""
+
+    def test_default_handle_events_is_noop_empty_list(self) -> None:
+        """Default implementation accepts an empty list without raising."""
+
+        class MinimalScene(Scene):
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = MinimalScene()
+        scene.handle_events([])  # Should not raise.
+
+    def test_default_handle_events_is_noop_with_events(self) -> None:
+        """Default implementation accepts events without raising."""
+
+        class MinimalScene(Scene):
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = MinimalScene()
+        scene.handle_events([Event(), Event()])  # Should not raise.
+
+    def test_handle_events_is_not_abstract(self) -> None:
+        """A scene that only implements update/render should instantiate
+        without overriding handle_events."""
+
+        class MinimalScene(Scene):
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = MinimalScene()
+        assert isinstance(scene, Scene)
+
+    def test_subclass_receives_events(self) -> None:
+        """A subclass that overrides handle_events receives the event list."""
+        received: list[list[Event]] = []
+
+        class EventScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                received.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = EventScene()
+        events = [Event(), Event()]
+        scene.handle_events(events)
+        assert len(received) == 1
+        assert len(received[0]) == 2
+
+    def test_handle_events_called_on_dummy_scene(self) -> None:
+        """DummyScene inherits the default no-op handle_events."""
+        scene = DummyScene()
+        scene.handle_events([Event()])  # Should not raise.

@@ -1,8 +1,9 @@
-"""Tests for the Engine main loop structure: input-update-render.
+"""Tests for the Engine main loop structure: input-handle-update-render.
 
-These tests verify that Engine._tick() correctly executes the three
-phases (drain events, update active scene, render active scene) and
-that the Engine exposes its EventQueue and SceneStack.
+These tests verify that Engine._tick() correctly executes the four
+phases (drain events, handle_events on active scene, update active
+scene, render active scene) and that the Engine exposes its EventQueue
+and SceneStack.
 """
 
 from __future__ import annotations
@@ -374,3 +375,140 @@ class TestOnlyTopSceneActive:
         engine.run(loop=False)
         assert len(top.update_calls) == 1
         assert top.render_calls == 1
+
+
+# ---------------------------------------------------------------------------
+# handle_events integration
+# ---------------------------------------------------------------------------
+
+
+class TestHandleEventsIntegration:
+    """Engine._tick() delivers drained events to the active scene."""
+
+    def test_handle_events_receives_posted_events(self) -> None:
+        """Events posted before tick should be delivered to handle_events."""
+        engine = Engine()
+        received: list[list[Event]] = []
+
+        class EventScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                received.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        evt1 = Event()
+        evt2 = Event()
+        engine.events.post(evt1)
+        engine.events.post(evt2)
+        engine.scenes.push(EventScene())
+        engine.run(loop=False)
+
+        assert len(received) == 1
+        assert received[0] == [evt1, evt2]
+
+    def test_handle_events_receives_empty_list_when_no_events(self) -> None:
+        """With no events posted, handle_events gets an empty list."""
+        engine = Engine()
+        received: list[list[Event]] = []
+
+        class EventScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                received.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        engine.scenes.push(EventScene())
+        engine.run(loop=False)
+
+        assert len(received) == 1
+        assert received[0] == []
+
+    def test_handle_events_called_before_update(self) -> None:
+        """handle_events must execute before update() each tick."""
+        engine = Engine()
+        call_order: list[str] = []
+
+        class OrderScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                call_order.append("handle_events")
+
+            def update(self, dt: float) -> None:
+                call_order.append("update")
+
+            def render(self) -> None:
+                call_order.append("render")
+
+        engine.scenes.push(OrderScene())
+        engine.run(loop=False)
+        assert call_order == ["handle_events", "update", "render"]
+
+    def test_only_top_scene_receives_events(self) -> None:
+        """Only the top scene on the stack receives handle_events."""
+        engine = Engine()
+        bottom_events: list[list[Event]] = []
+        top_events: list[list[Event]] = []
+
+        class BottomScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                bottom_events.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        class TopScene(Scene):
+            def handle_events(self, events: list[Event]) -> None:
+                top_events.append(list(events))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        engine.events.post(Event())
+        engine.scenes.push(BottomScene())
+        engine.scenes.push(TopScene())
+        engine.run(loop=False)
+
+        assert len(top_events) == 1
+        assert len(top_events[0]) == 1
+        assert len(bottom_events) == 0
+
+    def test_handle_events_not_called_on_empty_stack(self) -> None:
+        """With an empty scene stack, events are drained but not delivered."""
+        engine = Engine()
+        engine.events.post(Event())
+        engine.run(loop=False)  # Should not raise.
+        # Events are drained (queue empty after shutdown flush).
+        assert engine.events.is_empty
+
+    def test_events_queue_empty_during_update_after_handle(self) -> None:
+        """The event queue should already be drained when update() runs."""
+        engine = Engine()
+        queue_len_during_update: list[int] = []
+
+        class SpyScene(Scene):
+            def handle_events(self_, events: list[Event]) -> None:
+                pass  # events received here
+
+            def update(self_, dt: float) -> None:
+                queue_len_during_update.append(len(engine.events))
+
+            def render(self_) -> None:
+                pass
+
+        engine.events.post(Event())
+        engine.scenes.push(SpyScene())
+        engine.run(loop=False)
+        assert queue_len_during_update == [0]

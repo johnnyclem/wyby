@@ -24,6 +24,10 @@ Caveats:
       **not** called when the scene is merely covered by another scene
       pushed on top. Override :meth:`on_pause` and :meth:`on_resume`
       for that case.
+    - :meth:`Scene.handle_events` is called once per tick with the
+      list of events drained from the :class:`EventQueue`, **before**
+      :meth:`Scene.update`. Only the top scene receives events.
+      Scenes that do not need input can leave the default no-op.
 """
 
 from __future__ import annotations
@@ -31,6 +35,10 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from wyby.event import Event
 
 _logger = logging.getLogger(__name__)
 
@@ -52,6 +60,7 @@ class Scene(ABC):
     be updated and rendered each tick.
 
     Subclasses must implement :meth:`update` and :meth:`render`.
+    Override :meth:`handle_events` to process input each tick.
     Lifecycle hooks (:meth:`on_enter`, :meth:`on_exit`,
     :meth:`on_pause`, :meth:`on_resume`) are optional and default
     to no-ops.
@@ -114,6 +123,50 @@ class Scene(ABC):
             - The renderer is not yet implemented, so this method is
               currently a no-op in practice. It exists to establish
               the interface contract.
+        """
+
+    # ------------------------------------------------------------------
+    # Per-tick event handling (subclasses override this)
+    # ------------------------------------------------------------------
+
+    def handle_events(self, events: list[Event]) -> None:
+        """Process input events for this tick.
+
+        Called once per tick by the engine with all events drained from
+        the :class:`~wyby.event.EventQueue`, **before** :meth:`update`.
+        Override this to inspect, filter, or react to input events.
+
+        The default implementation is a no-op.  Scenes that do not need
+        input can leave it unoverridden.
+
+        Args:
+            events: A list of :class:`~wyby.event.Event` instances
+                drained from the queue this tick, in FIFO order.
+                May be empty if no events were posted.
+
+        Caveats:
+            - Only the **top** scene on the stack receives events.
+              Scenes below it are paused and do not see input.
+            - The list contains **all** event types
+              (:class:`~wyby.input.KeyEvent`,
+              :class:`~wyby.input.MouseEvent`, and any custom
+              subclasses).  Filter with ``isinstance`` checks to
+              handle specific types.
+            - Mouse events are only present when the
+              :class:`~wyby.input.InputManager` is configured with a
+              mouse-enabled :class:`~wyby.input.InputMode`.
+            - Events are delivered as a batch (the full drain), not
+              one at a time.  If ordering between events matters,
+              iterate the list in order.
+            - Do **not** mutate the scene stack from within
+              ``handle_events``.  Stack mutations take effect
+              immediately and can confuse the current tick's
+              update/render sequence.  Prefer setting a flag and
+              performing the transition in :meth:`update`, or posting
+              a custom event for the next tick.
+            - This method should not raise exceptions during normal
+              operation.  An unhandled exception will propagate
+              through the engine's tick and trigger shutdown.
         """
 
     # ------------------------------------------------------------------

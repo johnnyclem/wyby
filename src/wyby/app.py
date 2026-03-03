@@ -780,14 +780,15 @@ class Engine:
                 ``False``, execute a single tick and return.
 
         Caveats:
-            - Each tick runs three phases: poll input and drain the
-              event queue (input), call the active scene's
-              ``update(dt)`` (update), and call the active scene's
-              ``render()`` (render).  If an :class:`InputManager` is
-              attached, input polling is automatic; otherwise events
-              must be posted manually.  The Rich renderer is not yet
-              automatically connected — ``render()`` output is not
-              yet displayed.
+            - Each tick runs four phases: poll input and drain the
+              event queue (input), deliver drained events to the active
+              scene via ``handle_events(events)`` (handle), call the
+              active scene's ``update(dt)`` (update), and call the
+              active scene's ``render()`` (render).  If an
+              :class:`InputManager` is attached, input polling is
+              automatic; otherwise events must be posted manually.
+              The Rich renderer is not yet automatically connected —
+              ``render()`` output is not yet displayed.
             - **Sleep granularity.** ``time.sleep()`` precision is
               OS-dependent (typically 1–10 ms).  The accumulator
               self-corrects for overshoot on the next frame.
@@ -1059,28 +1060,24 @@ class Engine:
         :meth:`_run_loop` handles the mapping between wall-clock time
         and game time.
 
-        The tick follows a strict three-phase structure:
+        The tick follows a strict four-phase structure:
 
         1. **Input** — if an :class:`InputManager` is attached, poll it
            for new keyboard/mouse events and post them to the event
-           queue.  Then drain all pending events.  Events are collected
-           into a list but not automatically dispatched to the scene —
-           scenes should read events from the drained list or maintain
-           their own state based on events posted during previous ticks.
-        2. **Update** — call the active (top) scene's ``update(dt)``
+           queue.  Then drain all pending events into a list.
+        2. **Handle events** — pass the drained event list to the
+           active scene's :meth:`Scene.handle_events`.  This lets the
+           scene inspect and react to input before game state advances.
+           If the scene stack is empty, events are discarded.
+        3. **Update** — call the active (top) scene's ``update(dt)``
            method with the fixed timestep.  If the scene stack is empty,
            this phase is skipped.
-        3. **Render** — call the active scene's ``render()`` method.
+        4. **Render** — call the active scene's ``render()`` method.
            If the scene stack is empty, this phase is skipped.
 
         Caveats:
-            - The input phase polls the InputManager (if present) and
-              drains events, but does not dispatch them to the scene
-              automatically.  Scenes that need input should inspect the
-              event queue before drain() is called (e.g., by reading
-              events posted in the previous tick) or maintain their own
-              input state.
-            - Update and render are called on the same scene reference
+            - Handle-events, update, and render are called on the same
+              scene reference
               obtained once per tick.  If ``update()`` mutates the scene
               stack (e.g., pushes a pause menu), the *original* scene
               still renders this tick.  The new top scene will render
@@ -1102,7 +1099,7 @@ class Engine:
         # -- Phase 1: Input --
         # Poll the InputManager (if present) for new keyboard/mouse
         # events and post them to the event queue.  Then drain all
-        # queued events.
+        # queued events and deliver them to the active scene.
         #
         # Caveat: InputManager.poll() may raise KeyboardInterrupt if
         # Ctrl+C is pressed.  This propagates up through _tick() to
@@ -1110,12 +1107,20 @@ class Engine:
         if self._input_manager is not None:
             for event in self._input_manager.poll():
                 self._event_queue.post(event)
-        self._event_queue.drain()
+        events = self._event_queue.drain()
+
+        # Deliver drained events to the active scene's handle_events()
+        # before update().  This lets scenes process input (key presses,
+        # mouse clicks, custom events) before advancing game state.
+        # If the scene stack is empty, events are discarded — there is
+        # no scene to receive them.
+        scene = self._scene_stack.peek()
+        if scene is not None:
+            scene.handle_events(events)
 
         # -- Phase 2: Update --
         # Only the top scene receives updates.  Scenes below it on the
         # stack are paused and do not advance.
-        scene = self._scene_stack.peek()
         if scene is not None:
             scene.update(self._target_dt)
 
@@ -1128,9 +1133,9 @@ class Engine:
 
         # -- FPS tracking --
         # Record the tick timestamp for FPS computation.  This is done
-        # after all three phases so that frame_time reflects the full
-        # cost of input + update + render (plus any sleep from the
-        # outer loop between ticks).
+        # after all four phases so that frame_time reflects the full
+        # cost of input + handle_events + update + render (plus any
+        # sleep from the outer loop between ticks).
         if self._fps_counter is not None:
             self._fps_counter.tick(time.monotonic())
 
