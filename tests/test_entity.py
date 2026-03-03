@@ -508,6 +508,152 @@ class TestRemoveComponent:
 
 
 # ---------------------------------------------------------------------------
+# update
+# ---------------------------------------------------------------------------
+
+
+class _Counter(Component):
+    """Component that counts update calls and records dt values."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.call_count = 0
+        self.dt_values: list[float] = []
+
+    def update(self, dt: float) -> None:
+        self.call_count += 1
+        self.dt_values.append(dt)
+
+
+class _Exploding(Component):
+    """Component whose update raises an exception."""
+
+    def update(self, dt: float) -> None:
+        raise RuntimeError("boom")
+
+
+class TestEntityUpdate:
+    """Entity.update(dt) delegates to all attached component updates."""
+
+    def test_update_calls_component_update(self) -> None:
+        e = Entity(entity_id=700)
+        c = _Counter()
+        e.add_component(c)
+
+        e.update(1 / 30)
+
+        assert c.call_count == 1
+        assert c.dt_values == [pytest.approx(1 / 30)]
+
+    def test_update_passes_dt_to_all_components(self) -> None:
+        e = Entity(entity_id=701)
+        c1 = _Counter()
+        # Use distinct types so both can attach.
+
+        class _Counter2(_Counter):
+            pass
+
+        c2 = _Counter2()
+        e.add_component(c1)
+        e.add_component(c2)
+
+        e.update(0.5)
+
+        assert c1.dt_values == [0.5]
+        assert c2.dt_values == [0.5]
+
+    def test_update_with_no_components_is_noop(self) -> None:
+        """No error when entity has no components."""
+        e = Entity(entity_id=702)
+        e.update(1.0)  # Should not raise.
+
+    def test_update_accumulates_across_ticks(self) -> None:
+        e = Entity(entity_id=703)
+        c = _Counter()
+        e.add_component(c)
+
+        for _ in range(10):
+            e.update(1 / 30)
+
+        assert c.call_count == 10
+
+    def test_update_exception_propagates(self) -> None:
+        """A component exception stops the update and propagates."""
+        e = Entity(entity_id=704)
+        e.add_component(_Exploding())
+        with pytest.raises(RuntimeError, match="boom"):
+            e.update(1.0)
+
+    def test_update_exception_stops_remaining_components(self) -> None:
+        """Components after the failing one are not updated."""
+        e = Entity(entity_id=705)
+        before = _Counter()
+        exploding = _Exploding()
+
+        class _CounterAfter(_Counter):
+            pass
+
+        after = _CounterAfter()
+
+        e.add_component(before)
+        e.add_component(exploding)
+        e.add_component(after)
+
+        with pytest.raises(RuntimeError, match="boom"):
+            e.update(1.0)
+
+        # The component before the exception was updated.
+        assert before.call_count == 1
+        # The component after was not reached.
+        assert after.call_count == 0
+
+    def test_update_safe_during_component_removal(self) -> None:
+        """Removing a component during update does not raise RuntimeError.
+
+        Caveat: the removed component may still be updated in the
+        current tick because iteration uses a snapshot taken before
+        the update loop begins.
+        """
+        class _SelfRemover(Component):
+            def __init__(self) -> None:
+                super().__init__()
+                self.updated = False
+
+            def update(self, dt: float) -> None:
+                self.updated = True
+                if self.entity is not None:
+                    self.entity.remove_component(type(self))
+
+        e = Entity(entity_id=706)
+        remover = _SelfRemover()
+        c = _Counter()
+        e.add_component(remover)
+        e.add_component(c)
+
+        # Should not raise RuntimeError from dict mutation.
+        e.update(1.0)
+
+        assert remover.updated
+        assert c.call_count == 1
+
+    def test_update_with_real_velocity_and_position(self) -> None:
+        """Integration: Entity.update drives Velocity which moves Position."""
+        from wyby.position import Position
+        from wyby.velocity import Velocity
+
+        e = Entity(0, 0, entity_id=707)
+        pos = Position(0.0, 0.0)
+        vel = Velocity(10.0, 5.0)
+        e.add_component(pos)
+        e.add_component(vel)
+
+        e.update(0.1)
+
+        assert pos.x == pytest.approx(1.0)
+        assert pos.y == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
 # Import from package root
 # ---------------------------------------------------------------------------
 

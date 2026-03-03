@@ -397,6 +397,47 @@ class Entity:
         )
         return component
 
+    def update(self, dt: float) -> None:
+        """Update all attached components for one tick.
+
+        Iterates over every component attached to this entity and calls
+        its :meth:`~wyby.component.Component.update` method with *dt*.
+
+        This is a convenience method — games can also call individual
+        component ``update`` methods directly for more control over
+        ordering and selective updates.
+
+        Args:
+            dt: Time elapsed since the last tick, in seconds.  Typically
+                a fixed timestep (e.g. 1/30) from the engine's
+                accumulator pattern, not wall-clock time.
+
+        Caveats:
+            - **Iteration order** follows component attachment order
+              (dict insertion order, guaranteed in Python 3.7+).  If
+              your game depends on a specific update order (e.g.
+              Velocity before Health), attach components in that order.
+              For fine-grained control, call component ``update``
+              methods individually instead.
+            - **Snapshot iteration.**  This method iterates over a
+              snapshot of the component list, so adding or removing
+              components during an ``update`` callback will not cause
+              ``RuntimeError`` from dict mutation.  However, newly
+              added components will NOT be updated in the current tick,
+              and removed components that haven't been reached yet will
+              still be updated.
+            - **Exceptions propagate.**  If a component's ``update``
+              raises an exception, it will propagate immediately and
+              remaining components will not be updated for that tick.
+              The framework does not catch or log component errors —
+              handle them in your component or game loop.
+            - **No-op when empty.**  If the entity has no components,
+              this method returns immediately.
+        """
+        # Snapshot via list() so mutations during iteration are safe.
+        for component in list(self._components.values()):
+            component.update(dt)
+
     def move(self, dx: int, dy: int) -> None:
         """Move the entity by a relative offset.
 
