@@ -6,9 +6,11 @@ This module provides the :class:`Scene` abstract base class and a
 
 Caveats:
     - Only the top scene on the stack receives input. Scenes below it
-      may or may not render depending on configuration (e.g., a
-      transparent pause overlay vs. an opaque menu). Rendering policy
-      is the game's responsibility — the stack only tracks ordering.
+      may or may not update/render depending on their per-scene flags
+      (:attr:`Scene.updates_when_paused`,
+      :attr:`Scene.renders_when_paused`).  Both default to ``False``.
+      For example, set ``renders_when_paused = True`` on a gameplay
+      scene so it stays visible behind a transparent pause overlay.
     - Scenes own their entities and state. There is no implicit global
       state shared between scenes. Cross-scene communication must be
       done explicitly (e.g., via a shared context object passed to
@@ -80,6 +82,12 @@ class Scene(ABC):
           engine to call them at different rates in the future (e.g.,
           rendering at display refresh rate while updating at a fixed
           timestep). In v0.1 they are called 1:1 each tick.
+        - By default, only the top scene is updated and rendered.
+          Set :attr:`updates_when_paused` or :attr:`renders_when_paused`
+          to ``True`` on a scene to keep it active when covered by
+          another scene.  Even when updating while paused, a scene
+          does **not** receive events — input always routes to the top
+          scene only.
         - Subclasses that define ``__init__`` should call
           ``super().__init__()`` to ensure callback hook lists are
           initialized. If ``super().__init__()`` is not called,
@@ -97,6 +105,65 @@ class Scene(ABC):
     def __init__(self) -> None:
         self._enter_hooks: list[Callable[[], None]] = []
         self._exit_hooks: list[Callable[[], None]] = []
+        self._updates_when_paused: bool = False
+        self._renders_when_paused: bool = False
+
+    # ------------------------------------------------------------------
+    # Per-scene update/render policy (paused scenes)
+    # ------------------------------------------------------------------
+
+    @property
+    def updates_when_paused(self) -> bool:
+        """Whether this scene's ``update()`` is called when it is not the
+        top scene on the stack.
+
+        Defaults to ``False``.  Set to ``True`` for scenes that should
+        keep advancing game state while covered by another scene (e.g.,
+        gameplay ticking behind a transparent pause overlay).
+
+        Caveats:
+            - A paused scene that updates does **not** receive events
+              (``handle_events`` is always top-scene-only).  If your
+              paused scene needs input, route it explicitly via a shared
+              context object or custom events.
+            - Update order is bottom-to-top.  If a lower scene's
+              ``update()`` mutates the stack, the remaining scenes in
+              the snapshot are still updated this tick.  Stack changes
+              take full effect next tick.
+        """
+        return getattr(self, "_updates_when_paused", False)
+
+    @updates_when_paused.setter
+    def updates_when_paused(self, value: bool) -> None:
+        self._updates_when_paused = bool(value)
+
+    @property
+    def renders_when_paused(self) -> bool:
+        """Whether this scene's ``render()`` is called when it is not the
+        top scene on the stack.
+
+        Defaults to ``False``.  Set to ``True`` for scenes that should
+        remain visible underneath the top scene (e.g., a gameplay scene
+        rendering behind a semi-transparent HUD or pause menu).
+
+        Caveats:
+            - Render order is bottom-to-top within a single tick.
+              Scenes rendered earlier may be fully or partially
+              overwritten by scenes rendered later, depending on the
+              renderer implementation.  wyby does not composite layers
+              automatically — each scene writes to the same output
+              surface.
+            - Marking a scene as ``renders_when_paused`` does not
+              guarantee it is *visible*.  If the top scene fills the
+              entire screen with opaque content, lower scene renders
+              are wasted work.  Games should set this flag only when
+              the top scene is actually transparent or partial.
+        """
+        return getattr(self, "_renders_when_paused", False)
+
+    @renders_when_paused.setter
+    def renders_when_paused(self, value: bool) -> None:
+        self._renders_when_paused = bool(value)
 
     @abstractmethod
     def update(self, dt: float) -> None:
@@ -385,6 +452,67 @@ class SceneStack:
         if self._stack:
             return self._stack[-1]
         return None
+
+    def scenes_to_update(self) -> list[Scene]:
+        """Return a snapshot of scenes whose ``update()`` should be called.
+
+        The top scene is always included.  Paused scenes (those below
+        the top) are included only if their
+        :attr:`~Scene.updates_when_paused` flag is ``True``.
+
+        The returned list is ordered bottom-to-top so that lower scenes
+        update before higher ones within the same tick.  Returns an
+        empty list if the stack is empty.
+
+        Caveats:
+            - The list is a **snapshot**.  If a scene's ``update()``
+              mutates the stack (push/pop/replace), the remaining
+              scenes in the list are still updated.  Stack changes
+              take full effect next tick.
+            - Only the top scene receives events via
+              :meth:`Scene.handle_events`.  Paused scenes that update
+              do **not** receive input.
+        """
+        if not self._stack:
+            return []
+        result: list[Scene] = []
+        # Paused scenes (all except top) — include if they opted in.
+        for scene in self._stack[:-1]:
+            if scene.updates_when_paused:
+                result.append(scene)
+        # Top scene always updates.
+        result.append(self._stack[-1])
+        return result
+
+    def scenes_to_render(self) -> list[Scene]:
+        """Return a snapshot of scenes whose ``render()`` should be called.
+
+        The top scene is always included.  Paused scenes (those below
+        the top) are included only if their
+        :attr:`~Scene.renders_when_paused` flag is ``True``.
+
+        The returned list is ordered bottom-to-top so that lower
+        scenes render first and higher scenes paint over them.
+        Returns an empty list if the stack is empty.
+
+        Caveats:
+            - The list is a **snapshot**.  Stack mutations during
+              rendering take effect next tick.
+            - wyby does not composite scene output automatically.
+              Each scene writes to the same output surface.  If the
+              top scene fills the screen with opaque content, renders
+              from lower scenes are wasted work.
+            - ``render()`` must not modify game state — it should be a
+              pure read of each scene's current state.
+        """
+        if not self._stack:
+            return []
+        result: list[Scene] = []
+        for scene in self._stack[:-1]:
+            if scene.renders_when_paused:
+                result.append(scene)
+        result.append(self._stack[-1])
+        return result
 
     def push(self, scene: Scene) -> None:
         """Push a scene onto the top of the stack.

@@ -1170,3 +1170,143 @@ class TestEngineReplaceScene:
         assert len(engine.scenes) == 2
         engine.replace_scene(_DummyScene("c"))
         assert len(engine.scenes) == 2
+
+
+# ---------------------------------------------------------------------------
+# Per-scene update/render in engine tick
+# ---------------------------------------------------------------------------
+
+
+class TestEnginePerSceneUpdateRender:
+    """Engine._tick() calls update/render on the correct set of scenes."""
+
+    def test_only_top_scene_updated_by_default(self) -> None:
+        """With default flags, only the top scene gets update/render."""
+        engine = Engine()
+        bottom = _DummyScene("bottom")
+        top = _DummyScene("top")
+        engine.push_scene(bottom)
+        engine.push_scene(top)
+        bottom.calls.clear()
+        top.calls.clear()
+        engine.run(loop=False)
+        assert "update" in top.calls
+        assert "render" in top.calls
+        assert "update" not in bottom.calls
+        assert "render" not in bottom.calls
+
+    def test_paused_scene_updates_when_flag_set(self) -> None:
+        engine = Engine()
+        bottom = _DummyScene("bottom")
+        bottom.updates_when_paused = True
+        top = _DummyScene("top")
+        engine.push_scene(bottom)
+        engine.push_scene(top)
+        bottom.calls.clear()
+        top.calls.clear()
+        engine.run(loop=False)
+        assert "update" in bottom.calls
+        assert "update" in top.calls
+
+    def test_paused_scene_renders_when_flag_set(self) -> None:
+        engine = Engine()
+        bottom = _DummyScene("bottom")
+        bottom.renders_when_paused = True
+        top = _DummyScene("top")
+        engine.push_scene(bottom)
+        engine.push_scene(top)
+        bottom.calls.clear()
+        top.calls.clear()
+        engine.run(loop=False)
+        assert "render" in bottom.calls
+        assert "render" in top.calls
+
+    def test_paused_scene_does_not_render_without_flag(self) -> None:
+        """updates_when_paused does not imply renders_when_paused."""
+        engine = Engine()
+        bottom = _DummyScene("bottom")
+        bottom.updates_when_paused = True
+        bottom.renders_when_paused = False
+        top = _DummyScene("top")
+        engine.push_scene(bottom)
+        engine.push_scene(top)
+        bottom.calls.clear()
+        engine.run(loop=False)
+        assert "update" in bottom.calls
+        assert "render" not in bottom.calls
+
+    def test_update_order_bottom_to_top(self) -> None:
+        """Paused scenes update before the top scene (bottom-to-top)."""
+        engine = Engine()
+        order: list[str] = []
+
+        class OrderScene(Scene):
+            def __init__(self, name: str) -> None:
+                super().__init__()
+                self._name = name
+
+            def update(self, dt: float) -> None:
+                order.append(f"{self._name}.update")
+
+            def render(self) -> None:
+                pass
+
+        bottom = OrderScene("bottom")
+        bottom.updates_when_paused = True
+        top = OrderScene("top")
+        engine.push_scene(bottom)
+        engine.push_scene(top)
+        engine.run(loop=False)
+        assert order == ["bottom.update", "top.update"]
+
+    def test_render_order_bottom_to_top(self) -> None:
+        """Paused scenes render before the top scene (bottom-to-top)."""
+        engine = Engine()
+        order: list[str] = []
+
+        class OrderScene(Scene):
+            def __init__(self, name: str) -> None:
+                super().__init__()
+                self._name = name
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                order.append(f"{self._name}.render")
+
+        bottom = OrderScene("bottom")
+        bottom.renders_when_paused = True
+        top = OrderScene("top")
+        engine.push_scene(bottom)
+        engine.push_scene(top)
+        engine.run(loop=False)
+        assert order == ["bottom.render", "top.render"]
+
+    def test_events_only_go_to_top_scene(self) -> None:
+        """Paused scenes with updates_when_paused do not receive events."""
+        engine = Engine()
+        events_received: dict[str, int] = {"bottom": 0, "top": 0}
+
+        class EventScene(Scene):
+            def __init__(self, name: str) -> None:
+                super().__init__()
+                self._name = name
+
+            def handle_events(self, events: list) -> None:
+                events_received[self._name] += 1
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        bottom = EventScene("bottom")
+        bottom.updates_when_paused = True
+        top = EventScene("top")
+        engine.push_scene(bottom)
+        engine.push_scene(top)
+        engine.run(loop=False)
+        assert events_received["top"] == 1
+        assert events_received["bottom"] == 0

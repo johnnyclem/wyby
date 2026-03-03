@@ -1066,22 +1066,28 @@ class Engine:
            for new keyboard/mouse events and post them to the event
            queue.  Then drain all pending events into a list.
         2. **Handle events** — pass the drained event list to the
-           active scene's :meth:`Scene.handle_events`.  This lets the
-           scene inspect and react to input before game state advances.
-           If the scene stack is empty, events are discarded.
-        3. **Update** — call the active (top) scene's ``update(dt)``
-           method with the fixed timestep.  If the scene stack is empty,
-           this phase is skipped.
-        4. **Render** — call the active scene's ``render()`` method.
-           If the scene stack is empty, this phase is skipped.
+           active (top) scene's :meth:`Scene.handle_events`.  Only the
+           top scene receives events.  If the stack is empty, events
+           are discarded.
+        3. **Update** — call ``update(dt)`` on each scene that should
+           update this tick: paused scenes with
+           :attr:`~Scene.updates_when_paused` set to ``True``, plus
+           the top scene (always).  Order is bottom-to-top.
+        4. **Render** — call ``render()`` on each scene that should
+           render this tick: paused scenes with
+           :attr:`~Scene.renders_when_paused` set to ``True``, plus
+           the top scene (always).  Order is bottom-to-top so lower
+           scenes paint first.
 
         Caveats:
-            - Handle-events, update, and render are called on the same
-              scene reference
-              obtained once per tick.  If ``update()`` mutates the scene
-              stack (e.g., pushes a pause menu), the *original* scene
-              still renders this tick.  The new top scene will render
-              starting next tick.
+            - Events are delivered only to the top scene.  Paused
+              scenes that update via ``updates_when_paused`` do **not**
+              receive events.
+            - The scenes-to-update and scenes-to-render lists are
+              **snapshots** taken at the start of each phase.  If a
+              scene's ``update()`` mutates the stack (e.g., pushes a
+              pause menu), remaining scenes in the snapshot are still
+              updated.  Stack changes take full effect next tick.
             - If the scene stack is empty, the tick is effectively a
               no-op (timing bookkeeping still advances).  This is not
               an error — it allows the engine to run with an empty stack
@@ -1119,17 +1125,23 @@ class Engine:
             scene.handle_events(events)
 
         # -- Phase 2: Update --
-        # Only the top scene receives updates.  Scenes below it on the
-        # stack are paused and do not advance.
-        if scene is not None:
-            scene.update(self._target_dt)
+        # Snapshot the scenes that should update this tick.  The top
+        # scene always updates; paused scenes update only if their
+        # updates_when_paused flag is True.  Order is bottom-to-top.
+        # If a scene's update() mutates the stack (push/pop/replace),
+        # remaining scenes in the snapshot are still updated — stack
+        # changes take full effect next tick.
+        for s in self._scene_stack.scenes_to_update():
+            s.update(self._target_dt)
 
         # -- Phase 3: Render --
-        # Render the same scene that was updated.  If update() pushed or
-        # popped scenes, the new top takes effect next tick — this keeps
-        # the three phases consistent within a single tick.
-        if scene is not None:
-            scene.render()
+        # Snapshot the scenes that should render this tick.  The top
+        # scene always renders; paused scenes render only if their
+        # renders_when_paused flag is True.  Order is bottom-to-top
+        # so lower scenes paint first and upper scenes paint over them.
+        # render() must not modify game state.
+        for s in self._scene_stack.scenes_to_render():
+            s.render()
 
         # -- FPS tracking --
         # Record the tick timestamp for FPS computation.  This is done

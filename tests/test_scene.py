@@ -1022,3 +1022,249 @@ class TestSceneHandleEvents:
         """DummyScene inherits the default no-op handle_events."""
         scene = DummyScene()
         scene.handle_events([Event()])  # Should not raise.
+
+
+# ---------------------------------------------------------------------------
+# updates_when_paused / renders_when_paused properties
+# ---------------------------------------------------------------------------
+
+
+class TestSceneUpdatesWhenPaused:
+    """Scene.updates_when_paused flag controls per-scene update policy."""
+
+    def test_default_is_false(self) -> None:
+        scene = DummyScene()
+        assert scene.updates_when_paused is False
+
+    def test_can_set_to_true(self) -> None:
+        scene = DummyScene()
+        scene.updates_when_paused = True
+        assert scene.updates_when_paused is True
+
+    def test_can_set_back_to_false(self) -> None:
+        scene = DummyScene()
+        scene.updates_when_paused = True
+        scene.updates_when_paused = False
+        assert scene.updates_when_paused is False
+
+    def test_coerces_truthy_to_bool(self) -> None:
+        scene = DummyScene()
+        scene.updates_when_paused = 1  # type: ignore[assignment]
+        assert scene.updates_when_paused is True
+
+    def test_coerces_falsy_to_bool(self) -> None:
+        scene = DummyScene()
+        scene.updates_when_paused = 0  # type: ignore[assignment]
+        assert scene.updates_when_paused is False
+
+    def test_works_without_super_init(self) -> None:
+        """Property should work even if subclass skips super().__init__()."""
+
+        class NoSuperScene(Scene):
+            def __init__(self) -> None:
+                pass
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = NoSuperScene()
+        assert scene.updates_when_paused is False
+        scene.updates_when_paused = True
+        assert scene.updates_when_paused is True
+
+
+class TestSceneRendersWhenPaused:
+    """Scene.renders_when_paused flag controls per-scene render policy."""
+
+    def test_default_is_false(self) -> None:
+        scene = DummyScene()
+        assert scene.renders_when_paused is False
+
+    def test_can_set_to_true(self) -> None:
+        scene = DummyScene()
+        scene.renders_when_paused = True
+        assert scene.renders_when_paused is True
+
+    def test_can_set_back_to_false(self) -> None:
+        scene = DummyScene()
+        scene.renders_when_paused = True
+        scene.renders_when_paused = False
+        assert scene.renders_when_paused is False
+
+    def test_coerces_truthy_to_bool(self) -> None:
+        scene = DummyScene()
+        scene.renders_when_paused = 1  # type: ignore[assignment]
+        assert scene.renders_when_paused is True
+
+    def test_coerces_falsy_to_bool(self) -> None:
+        scene = DummyScene()
+        scene.renders_when_paused = 0  # type: ignore[assignment]
+        assert scene.renders_when_paused is False
+
+
+# ---------------------------------------------------------------------------
+# scenes_to_update / scenes_to_render
+# ---------------------------------------------------------------------------
+
+
+class TestSceneStackScenesToUpdate:
+    """SceneStack.scenes_to_update() returns scenes that should update."""
+
+    def test_empty_stack_returns_empty_list(self) -> None:
+        stack = SceneStack()
+        assert stack.scenes_to_update() == []
+
+    def test_single_scene_returns_that_scene(self) -> None:
+        stack = SceneStack()
+        scene = DummyScene("a")
+        stack.push(scene)
+        assert stack.scenes_to_update() == [scene]
+
+    def test_top_scene_always_included(self) -> None:
+        stack = SceneStack()
+        bottom = DummyScene("bottom")
+        top = DummyScene("top")
+        stack.push(bottom)
+        stack.push(top)
+        result = stack.scenes_to_update()
+        assert top in result
+
+    def test_paused_scene_excluded_by_default(self) -> None:
+        stack = SceneStack()
+        bottom = DummyScene("bottom")
+        top = DummyScene("top")
+        stack.push(bottom)
+        stack.push(top)
+        assert bottom not in stack.scenes_to_update()
+
+    def test_paused_scene_included_when_flag_set(self) -> None:
+        stack = SceneStack()
+        bottom = DummyScene("bottom")
+        bottom.updates_when_paused = True
+        top = DummyScene("top")
+        stack.push(bottom)
+        stack.push(top)
+        result = stack.scenes_to_update()
+        assert bottom in result
+        assert top in result
+
+    def test_order_is_bottom_to_top(self) -> None:
+        stack = SceneStack()
+        a = DummyScene("a")
+        a.updates_when_paused = True
+        b = DummyScene("b")
+        b.updates_when_paused = True
+        c = DummyScene("c")
+        stack.push(a)
+        stack.push(b)
+        stack.push(c)
+        result = stack.scenes_to_update()
+        assert result == [a, b, c]
+
+    def test_mixed_flags(self) -> None:
+        """Only scenes with the flag set are included (plus top)."""
+        stack = SceneStack()
+        a = DummyScene("a")
+        a.updates_when_paused = True
+        b = DummyScene("b")  # default False
+        c = DummyScene("c")
+        c.updates_when_paused = True
+        d = DummyScene("d")  # top
+        stack.push(a)
+        stack.push(b)
+        stack.push(c)
+        stack.push(d)
+        result = stack.scenes_to_update()
+        assert result == [a, c, d]
+
+    def test_returns_snapshot_not_live_view(self) -> None:
+        """The returned list should not be affected by later stack mutations."""
+        stack = SceneStack()
+        scene = DummyScene("a")
+        stack.push(scene)
+        snapshot = stack.scenes_to_update()
+        stack.pop()
+        # The snapshot should still contain the scene.
+        assert snapshot == [scene]
+
+
+class TestSceneStackScenesToRender:
+    """SceneStack.scenes_to_render() returns scenes that should render."""
+
+    def test_empty_stack_returns_empty_list(self) -> None:
+        stack = SceneStack()
+        assert stack.scenes_to_render() == []
+
+    def test_single_scene_returns_that_scene(self) -> None:
+        stack = SceneStack()
+        scene = DummyScene("a")
+        stack.push(scene)
+        assert stack.scenes_to_render() == [scene]
+
+    def test_top_scene_always_included(self) -> None:
+        stack = SceneStack()
+        bottom = DummyScene("bottom")
+        top = DummyScene("top")
+        stack.push(bottom)
+        stack.push(top)
+        result = stack.scenes_to_render()
+        assert top in result
+
+    def test_paused_scene_excluded_by_default(self) -> None:
+        stack = SceneStack()
+        bottom = DummyScene("bottom")
+        top = DummyScene("top")
+        stack.push(bottom)
+        stack.push(top)
+        assert bottom not in stack.scenes_to_render()
+
+    def test_paused_scene_included_when_flag_set(self) -> None:
+        stack = SceneStack()
+        bottom = DummyScene("bottom")
+        bottom.renders_when_paused = True
+        top = DummyScene("top")
+        stack.push(bottom)
+        stack.push(top)
+        result = stack.scenes_to_render()
+        assert bottom in result
+        assert top in result
+
+    def test_order_is_bottom_to_top(self) -> None:
+        stack = SceneStack()
+        a = DummyScene("a")
+        a.renders_when_paused = True
+        b = DummyScene("b")
+        b.renders_when_paused = True
+        c = DummyScene("c")
+        stack.push(a)
+        stack.push(b)
+        stack.push(c)
+        result = stack.scenes_to_render()
+        assert result == [a, b, c]
+
+    def test_mixed_flags(self) -> None:
+        stack = SceneStack()
+        a = DummyScene("a")  # default False
+        b = DummyScene("b")
+        b.renders_when_paused = True
+        c = DummyScene("c")  # top
+        stack.push(a)
+        stack.push(b)
+        stack.push(c)
+        result = stack.scenes_to_render()
+        assert result == [b, c]
+
+    def test_update_and_render_flags_are_independent(self) -> None:
+        """updates_when_paused and renders_when_paused are independent."""
+        stack = SceneStack()
+        bottom = DummyScene("bottom")
+        bottom.updates_when_paused = True
+        bottom.renders_when_paused = False
+        top = DummyScene("top")
+        stack.push(bottom)
+        stack.push(top)
+        assert bottom in stack.scenes_to_update()
+        assert bottom not in stack.scenes_to_render()
