@@ -54,6 +54,10 @@ Or use :func:`prepare_for_terminal` as an all-in-one convenience::
 
 Requires the ``Pillow`` library (``pip install wyby[image]``).
 
+For SVG input, use :func:`load_svg` to rasterize an SVG file into a Pillow
+image before passing it through the pipeline.  This requires the ``cairosvg``
+library (``pip install wyby[svg]``).
+
 Caveats:
     - **Terminal cells are not square.**  The exact aspect ratio varies by
       terminal emulator and font.  The default ``CELL_ASPECT_RATIO`` of 2.0
@@ -451,3 +455,153 @@ def prepare_for_terminal(
         )
 
     return result
+
+
+def load_svg(
+    svg_input: str | bytes,
+    *,
+    scale: float = 1.0,
+    output_width: int | None = None,
+    output_height: int | None = None,
+) -> Image.Image:
+    """Rasterize an SVG file or string into a Pillow Image.
+
+    Converts SVG vector graphics into a raster :class:`~PIL.Image.Image`
+    that can be fed into the rest of the image-to-terminal pipeline
+    (:func:`prepare_for_terminal`, :func:`~wyby.sprite.from_image`).
+
+    Requires the ``cairosvg`` library (``pip install wyby[svg]``).  CairoSVG
+    in turn requires a system-level Cairo installation.
+
+    Example::
+
+        from wyby.dithering import load_svg, prepare_for_terminal
+        from wyby.sprite import from_image
+
+        img = load_svg("hero.svg", output_width=200)
+        img = prepare_for_terminal(img, target_width=40, colors=16)
+        entities = from_image(img)
+
+    Args:
+        svg_input: Either a filesystem path (string) to an ``.svg`` file,
+            or raw SVG markup as ``bytes``.  When a string is given, it is
+            treated as a file path.  To pass inline SVG markup as a string,
+            encode it first: ``svg_string.encode("utf-8")``.
+        scale: Uniform scale factor applied to the SVG's intrinsic
+            dimensions.  Defaults to 1.0 (no scaling).  A value of 2.0
+            renders at double resolution.  Ignored if *output_width* or
+            *output_height* is specified.
+        output_width: Desired width of the rasterized image in pixels.
+            If specified without *output_height*, the height is calculated
+            to preserve the SVG's aspect ratio.  If ``None`` (the default),
+            the SVG's intrinsic width (times *scale*) is used.
+        output_height: Desired height of the rasterized image in pixels.
+            If specified without *output_width*, the width is calculated
+            to preserve the aspect ratio.  If both are given, the image
+            is rendered at exactly those dimensions (aspect ratio may not
+            be preserved).
+
+    Returns:
+        A Pillow :class:`~PIL.Image.Image` in ``"RGBA"`` mode.
+
+    Raises:
+        ImportError: If ``cairosvg`` is not installed.
+        ImportError: If ``Pillow`` is not installed.
+        FileNotFoundError: If *svg_input* is a string path that does not
+            exist.
+        TypeError: If *svg_input* is not a ``str`` or ``bytes``.
+        ValueError: If *scale* is not positive.
+        ValueError: If *output_width* or *output_height* is less than 1.
+
+    Caveats:
+        - **CairoSVG requires system Cairo.**  On macOS use
+          ``brew install cairo``, on Ubuntu/Debian ``apt install libcairo2``,
+          on Windows install the GTK+ runtime or use conda.  If Cairo is
+          not found at runtime, ``cairosvg`` will raise an ``OSError``.
+        - **SVG feature support varies.**  CairoSVG handles most SVG 1.1
+          features but does not support JavaScript, CSS animations, or
+          some advanced filter effects.  Complex SVGs may not render
+          identically to a browser.  Test your specific SVGs.
+        - **Rasterization is a one-way operation.**  The returned image is
+          a fixed-resolution bitmap.  Scaling up after rasterization will
+          produce blurry results.  Render at a high resolution first, then
+          let :func:`prepare_for_terminal` downscale.
+        - **Pillow is also required.**  This function uses Pillow to read
+          the PNG bytes produced by CairoSVG.  Both ``cairosvg`` and
+          ``Pillow`` must be installed.
+        - **Call at load time, not per-frame.**  SVG rasterization is
+          expensive.  Cache the resulting image.
+    """
+    try:
+        import cairosvg
+    except ImportError:
+        raise ImportError(
+            "cairosvg is required for load_svg(). "
+            "Install it with: pip install wyby[svg]"
+        ) from None
+
+    try:
+        from PIL import Image as _PILImage
+    except ImportError:
+        raise ImportError(
+            "Pillow is required for load_svg(). "
+            "Install it with: pip install wyby[image]"
+        ) from None
+
+    # Validate svg_input type.
+    if not isinstance(svg_input, (str, bytes)):
+        raise TypeError(
+            f"svg_input must be a str path or bytes, "
+            f"got {type(svg_input).__name__}"
+        )
+
+    # Validate scale.
+    if not isinstance(scale, (int, float)):
+        raise TypeError(
+            f"scale must be a number, got {type(scale).__name__}"
+        )
+    if scale <= 0:
+        raise ValueError(f"scale must be positive, got {scale}")
+
+    # Validate output dimensions.
+    if output_width is not None and output_width < 1:
+        raise ValueError(
+            f"output_width must be >= 1, got {output_width}"
+        )
+    if output_height is not None and output_height < 1:
+        raise ValueError(
+            f"output_height must be >= 1, got {output_height}"
+        )
+
+    # Check file existence for path input.
+    if isinstance(svg_input, str):
+        import os
+        if not os.path.isfile(svg_input):
+            raise FileNotFoundError(
+                f"SVG file not found: {svg_input}"
+            )
+
+    # Build cairosvg kwargs.
+    kwargs: dict[str, object] = {}
+    if output_width is not None:
+        kwargs["output_width"] = output_width
+    if output_height is not None:
+        kwargs["output_height"] = output_height
+    if output_width is None and output_height is None and scale != 1.0:
+        kwargs["scale"] = scale
+
+    # Rasterize SVG to PNG bytes.
+    if isinstance(svg_input, bytes):
+        png_bytes = cairosvg.svg2png(bytestring=svg_input, **kwargs)
+    else:
+        png_bytes = cairosvg.svg2png(url=svg_input, **kwargs)
+
+    # Load PNG bytes into Pillow.
+    import io
+    image = _PILImage.open(io.BytesIO(png_bytes)).convert("RGBA")
+
+    _logger.debug(
+        "load_svg: rasterized to %dx%d RGBA image",
+        image.width, image.height,
+    )
+    return image

@@ -22,6 +22,13 @@ dependencies = [
 image = [
     "Pillow>=9.0",
 ]
+# SVG rasterization — cairosvg converts SVG to PNG for the image pipeline.
+# Requires a system-level Cairo library (brew install cairo / apt install libcairo2).
+# Install with `pip install -e ".[svg]"` or `pip install wyby[svg]`.
+svg = [
+    "cairosvg>=2.5",
+    "Pillow>=9.0",
+]
 # Dev dependencies kept as optional extras so CI and contributors can
 # install them with `pip install -e ".[dev]"` without polluting the
 # runtime dependency tree.
@@ -30,6 +37,7 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.4.0",
     "Pillow>=9.0",
+    "cairosvg>=2.5",
 ]
 
 [tool.setuptools.packages.find]

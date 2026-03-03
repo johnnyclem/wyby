@@ -45,6 +45,7 @@ from wyby.component import Component
 from wyby.dithering import (
     CELL_ASPECT_RATIO,
     correct_aspect_ratio,
+    load_svg,
     prepare_for_terminal,
     quantize_for_terminal,
 )
@@ -191,6 +192,7 @@ __all__ = [
     "Sprite",
     "from_image",
     "from_text",
+    "load_svg",
     "string_width",
     "Cut",
     "FadeTransition",
