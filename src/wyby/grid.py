@@ -37,6 +37,10 @@ Caveats
   writes that fall outside the buffer.  ``get()`` returns ``None`` for
   out-of-bounds coordinates.  This keeps rendering code simple (no need
   to pre-clip) but means typos in coordinates fail silently.
+- **Terminal clipping.**  :meth:`CellBuffer.clip` returns a new buffer
+  truncated to a given width and height.  :func:`clip_to_terminal` is a
+  convenience that clips to the current terminal dimensions, useful for
+  ensuring a buffer does not exceed what the terminal can display.
 """
 
 from __future__ import annotations
@@ -253,6 +257,57 @@ class CellBuffer:
             dim=bool(style.dim),
         )
 
+    def clip(self, width: int, height: int) -> CellBuffer:
+        """Return a new CellBuffer clipped to the given dimensions.
+
+        Creates a new buffer whose dimensions are the intersection of
+        this buffer and the specified bounds.  Cells that fall within
+        both the original buffer and the clip region are copied; cells
+        outside are discarded.
+
+        This is useful for fitting a game buffer to the actual terminal
+        size before presenting, avoiding wasted rendering work for
+        cells that would be invisible.
+
+        Args:
+            width: Maximum number of columns in the result.
+            height: Maximum number of rows in the result.
+
+        Returns:
+            A new :class:`CellBuffer` with dimensions
+            ``(min(self.width, width), min(self.height, height))``.
+            If both *width* and *height* are >= the current dimensions,
+            the result is a full copy of this buffer.
+
+        Caveats:
+            - Returns a **new** CellBuffer — the original is not
+              modified.  Cell objects are shared (not deep-copied)
+              between the original and the result.  Since game code
+              typically replaces cells via ``put()`` rather than
+              mutating Cell attributes in place, this is safe in
+              practice.  If you mutate a Cell's attributes after
+              clipping, the change is visible in both buffers.
+            - Negative or zero values for *width* / *height* are
+              clamped to ``_MIN_DIMENSION`` by CellBuffer's constructor,
+              resulting in a 1×1 buffer.
+            - Clipping removes cells at the right and bottom edges
+              only.  The clip region always starts at ``(0, 0)``.
+              There is no offset — to clip a sub-region, copy cells
+              manually or use a future ``blit()`` method.
+            - If the buffer is already smaller than the given
+              dimensions, the result has the same dimensions as the
+              original (it is not padded).
+        """
+        new_w = max(_MIN_DIMENSION, min(self._width, width))
+        new_h = max(_MIN_DIMENSION, min(self._height, height))
+        result = CellBuffer(new_w, new_h)
+        for y in range(new_h):
+            src_row = self._cells[y]
+            dst_row = result._cells[y]
+            for x in range(new_w):
+                dst_row[x] = src_row[x]
+        return result
+
     def fill(self, cell: Cell) -> None:
         """Fill the entire buffer with copies of *cell*."""
         for row in self._cells:
@@ -351,3 +406,48 @@ class CellBuffer:
             [_default_cell() for _ in range(self._width)]
             for _ in range(self._height)
         ]
+
+
+def clip_to_terminal(buffer: CellBuffer) -> CellBuffer:
+    """Clip a CellBuffer to the current terminal dimensions.
+
+    Convenience wrapper around :meth:`CellBuffer.clip` that queries
+    the terminal size via :func:`shutil.get_terminal_size` and clips
+    the buffer to fit.
+
+    Args:
+        buffer: The buffer to clip.
+
+    Returns:
+        A new :class:`CellBuffer` whose dimensions do not exceed
+        the terminal's column and row counts.  If the buffer is
+        already smaller than the terminal, the result is a full
+        copy with the original dimensions (no padding).
+
+    Caveats:
+        - Terminal size is queried at call time via
+          :func:`shutil.get_terminal_size`.  In non-TTY environments
+          (CI, piped output, pytest capture), this returns a fallback
+          of ``(80, 24)``, which may not reflect the actual display
+          area.
+        - The terminal size can change between the call to
+          ``clip_to_terminal()`` and the subsequent ``present()``
+          call (e.g., the user resizes the window).  For robust
+          handling, use :class:`~wyby.resize.ResizeHandler` to
+          detect resizes and re-clip on each frame.
+        - Only the right and bottom edges are clipped.  Content at
+          the top-left of the buffer is always preserved.  If the
+          game's viewport is offset from ``(0, 0)``, the caller
+          must handle the offset before clipping.
+        - Rich's ``Live`` display already applies its own clipping
+          (``vertical_overflow="crop"`` and per-row
+          ``overflow="crop"``).  Calling ``clip_to_terminal()``
+          before ``present()`` is an optimisation — it avoids
+          building Rich ``Text`` objects and ANSI sequences for
+          rows and columns that Rich would crop anyway.  For small
+          buffers or low frame rates, the difference is negligible.
+    """
+    import shutil
+
+    size = shutil.get_terminal_size()
+    return buffer.clip(size.columns, size.lines)

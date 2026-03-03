@@ -46,7 +46,7 @@ from wyby.diagnostics import (
     detect_capabilities,
 )
 from wyby.event import Event, EventQueue
-from wyby.grid import Cell, CellBuffer
+from wyby.grid import Cell, CellBuffer, clip_to_terminal
 from wyby.layer import Layer, LayerStack
 from wyby.render_warnings import (
     RenderCost,
@@ -68,6 +68,7 @@ __all__ = [
     "AltScreen",
     "Cell",
     "CellBuffer",
+    "clip_to_terminal",
     "ColorSupport",
     "Engine",
     "EngineConfig",
