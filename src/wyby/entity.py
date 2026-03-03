@@ -32,10 +32,11 @@ Caveats:
       O(n) over all entities.  For games with hundreds of entities
       this is fine; for thousands, a spatial index (grid hash, quadtree)
       would be needed but is not provided in v0.1.
-    - **No collision detection or physics.**  The entity model stores
-      positions but does not enforce any spatial constraints.  Two
-      entities can occupy the same position.  Collision logic is the
-      game's responsibility.
+    - **Collision detection is opt-in.**  The :meth:`Entity.collide_with`
+      method provides basic AABB overlap testing, but does not enforce
+      any spatial constraints.  Two entities can occupy the same position.
+      Collision *response* (blocking, bouncing, damage) is the game's
+      responsibility.
     - **Tags are unordered sets.**  Tag ordering is not preserved.
       Tag values must be non-empty strings.
     - **Thread safety.**  Entity creation and mutation are not
@@ -567,6 +568,76 @@ class Entity:
         self._alive = False
 
         _logger.debug("Entity destroyed: id=%d", self._id)
+
+    def collide_with(
+        self,
+        other: Entity,
+        *,
+        self_width: int = 1,
+        self_height: int = 1,
+        other_width: int = 1,
+        other_height: int = 1,
+    ) -> bool:
+        """Test whether this entity's bounding box overlaps another's.
+
+        Builds an :class:`~wyby.collision.AABB` for each entity from its
+        grid position (:attr:`x`, :attr:`y`) and the given dimensions,
+        then delegates to :func:`~wyby.collision.aabb_overlap`.
+
+        Args:
+            other: The entity to test against.
+            self_width: Width of *this* entity's bounding box in cells.
+                Defaults to 1 (single cell).
+            self_height: Height of *this* entity's bounding box in cells.
+                Defaults to 1 (single cell).
+            other_width: Width of *other*'s bounding box in cells.
+                Defaults to 1 (single cell).
+            other_height: Height of *other*'s bounding box in cells.
+                Defaults to 1 (single cell).
+
+        Returns:
+            ``True`` if the bounding boxes overlap, ``False`` otherwise.
+
+        Raises:
+            TypeError: If *other* is not an :class:`Entity`.
+
+        Caveats:
+            - **Uses integer grid position, not the Position component.**
+              This method reads :attr:`x` and :attr:`y` (ints), not the
+              float coordinates stored in a
+              :class:`~wyby.position.Position` component.  If you use
+              :func:`~wyby.physics.sync_positions` to snap floats to the
+              grid, call it *before* collision checks so the grid
+              position is up to date.
+            - **Detection only, no response.**  Returns a bool — it does
+              not separate overlapping entities, apply knockback, or
+              trigger damage.  Response logic belongs in your game loop.
+            - **Destroyed entities never collide.**  If either entity has
+              been :meth:`destroy`-ed (``alive is False``), this method
+              returns ``False``.
+            - **Default 1x1 bounding box.**  Without explicit sizes,
+              both entities are treated as single-cell points.  Two
+              entities collide only when they occupy the exact same cell.
+              Pass larger sizes for multi-cell sprites.
+            - **Edge-touching counts as overlap**, consistent with
+              :func:`~wyby.collision.aabb_overlap`.
+            - **Self-collision.**  ``entity.collide_with(entity)`` returns
+              ``True`` when the entity is alive (a box always overlaps
+              itself).
+        """
+        if not isinstance(other, Entity):
+            raise TypeError(
+                f"other must be an Entity, got {type(other).__name__}"
+            )
+        # Dead entities cannot collide.
+        if not self._alive or not other._alive:
+            return False
+
+        from wyby.collision import AABB, aabb_overlap
+
+        a = AABB(self._x, self._y, self_width, self_height)
+        b = AABB(other._x, other._y, other_width, other_height)
+        return aabb_overlap(a, b)
 
     def move(self, dx: int, dy: int) -> None:
         """Move the entity by a relative offset.
