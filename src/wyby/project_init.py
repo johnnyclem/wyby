@@ -1,11 +1,13 @@
-"""Utilities for initializing a wyby game project with git, .gitignore, pyproject.toml, pre-commit config, LICENSE, CONTRIBUTING.md, and .env.example.
+"""Utilities for initializing a wyby game project with git, .gitignore, pyproject.toml, pre-commit config, LICENSE, CONTRIBUTING.md, .env.example, and .editorconfig.
 
 This module provides functions to scaffold a new wyby game project directory
 with a git repository, a .gitignore tailored for Python-based terminal
-game development, a ``pyproject.toml`` declaring the project's metadata
-and dependencies, a ``.pre-commit-config.yaml`` for code-quality hooks,
-an MIT ``LICENSE`` file, a ``CONTRIBUTING.md`` guide, and a
-``.env.example`` file documenting available development flags.
+game development, a ``pyproject.toml`` declaring the project's metadata,
+dependencies, and ruff linting/formatting configuration, a
+``.pre-commit-config.yaml`` for code-quality hooks, an MIT ``LICENSE``
+file, a ``CONTRIBUTING.md`` guide, a ``.env.example`` file documenting
+available development flags, and an ``.editorconfig`` for consistent
+editor settings.
 
 Caveats:
     - Requires ``git`` to be installed and available on the system PATH.
@@ -67,6 +69,21 @@ Caveats:
       holds placeholder/default values. wyby does not automatically read
       ``.env`` files at runtime — games must load them explicitly (e.g.
       via ``python-dotenv``) or export the variables in the shell.
+    - The generated ``pyproject.toml`` includes ``[tool.ruff]``,
+      ``[tool.ruff.lint]``, and ``[tool.ruff.format]`` sections that
+      configure ruff as both linter and formatter. Ruff replaces Black
+      (formatting) and flake8 (linting) in a single tool — there is no
+      need to install Black separately. ``ruff format`` is
+      Black-compatible. If both tools are run on the same codebase they
+      may fight over minor edge cases; pick one. This template picks
+      ruff.
+    - The generated ``.editorconfig`` defines whitespace and encoding
+      settings for editors that support the EditorConfig standard. It is
+      *advisory* only — enforcement comes from ruff and the pre-commit
+      hooks. The ``indent_size`` (4 for Python) and ``max_line_length``
+      (88) values match ruff's defaults. If you change ruff's
+      ``line-length`` or ``indent-width`` in ``pyproject.toml``, update
+      ``.editorconfig`` to match so that editors and the formatter agree.
 """
 
 from __future__ import annotations
@@ -181,6 +198,37 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# --- Ruff (linter + formatter) ---
+# Ruff replaces both flake8 (linting) and Black (formatting) in a single tool.
+# There is no need to install Black separately — ``ruff format`` is
+# Black-compatible and significantly faster.
+#
+# Caveat: ruff's rule set and defaults evolve across releases. Pin ruff in
+# your dev dependencies and review the changelog when upgrading.
+
+[tool.ruff]
+# Match wyby's own minimum Python version.
+target-version = "py310"
+# Line length 88 is the Black/ruff default. If you change this, also update
+# .editorconfig so that editors and the formatter agree.
+line-length = 88
+
+[tool.ruff.lint]
+# E/W = pycodestyle errors/warnings, F = pyflakes, I = isort-compatible
+# import sorting, UP = pyupgrade (modernise syntax for target Python version),
+# B = flake8-bugbear (common bug patterns).
+# Caveat: adding more rule sets (e.g. "S" for bandit security checks) may
+# surface new warnings in existing code. Enable incrementally and fix as you go.
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.format]
+# Ruff's formatter is Black-compatible. These defaults match Black's style.
+# Caveat: ruff format is not *identical* to Black in every edge case, but
+# differences are rare and intentional. Do not run both tools on the same
+# codebase — pick one. This template picks ruff.
+quote-style = "double"
+indent-style = "space"
 """
 
 
@@ -377,6 +425,62 @@ ruff format src/ tests/
 #   may not be read by the framework yet (wyby is pre-release). They are
 #   documented here so that game projects have a consistent pattern to
 #   follow as the framework matures.
+# .editorconfig template for wyby game projects.
+#
+# Caveats:
+# - EditorConfig settings are only applied if the developer's editor or IDE
+#   has EditorConfig support enabled. Most modern editors (VS Code, PyCharm,
+#   Sublime Text, Vim/Neovim) support it natively or via a plugin, but there
+#   is no guarantee. The settings here are *advisory* — they do not enforce
+#   style at build time. Use ruff (or the pre-commit hooks) for enforcement.
+# - The indent_size of 4 for Python files matches PEP 8 and ruff's default.
+#   If the project changes ruff's indent-width (in pyproject.toml), update
+#   the .editorconfig to match so that editors and the formatter agree.
+# - The line length (max_line_length = 88) matches ruff's default, which is
+#   inherited from Black. If ruff's line-length is changed in pyproject.toml,
+#   update .editorconfig accordingly.
+# - TOML, YAML, and JSON files use 2-space indentation by convention. This
+#   is separate from Python's 4-space standard and should not be changed
+#   without good reason.
+# - Makefiles *require* tab indentation — this is a syntax rule, not a
+#   preference. The tab setting for Makefiles must not be changed.
+# - The ``root = true`` directive tells EditorConfig to stop searching
+#   parent directories. Without it, settings from a parent project's
+#   .editorconfig could leak in and override these values.
+EDITORCONFIG_TEMPLATE = """\
+# EditorConfig — consistent coding styles across editors and IDEs.
+# See https://editorconfig.org for supported editors and plugins.
+#
+# Caveats:
+#   - These settings are advisory. Your editor must support EditorConfig
+#     (natively or via plugin) for them to take effect.
+#   - For enforcement, rely on ruff (configured in pyproject.toml) and
+#     the pre-commit hooks.
+#   - If you change ruff's line-length or indent-width in pyproject.toml,
+#     update the corresponding values here so editors and the formatter agree.
+
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 88
+
+[*.{toml,yaml,yml,json}]
+indent_style = space
+indent_size = 2
+
+[Makefile]
+indent_style = tab
+"""
+
+
 ENV_EXAMPLE_TEMPLATE = """\
 # wyby development environment flags.
 #
@@ -838,6 +942,53 @@ def create_env_example(
     return env_example_path
 
 
+def create_editorconfig(
+    path: str | Path,
+    *,
+    overwrite: bool = False,
+) -> Path:
+    """Write an ``.editorconfig`` file for a wyby game project.
+
+    The template defines consistent whitespace, encoding, and indentation
+    settings across editors and IDEs that support EditorConfig.
+
+    Args:
+        path: Directory in which to create the ``.editorconfig`` file.
+        overwrite: If ``True``, replace an existing ``.editorconfig``.
+            Defaults to ``False`` to avoid discarding user customisations.
+
+    Returns:
+        The ``Path`` of the written ``.editorconfig`` file.
+
+    Raises:
+        FileExistsError: If ``.editorconfig`` already exists and
+            *overwrite* is ``False``.
+
+    Caveats:
+        - EditorConfig is only effective if the developer's editor has
+          support enabled. Most modern editors do, but there is no
+          guarantee. For *enforcement*, rely on ruff and pre-commit.
+        - The ``max_line_length`` and ``indent_size`` values match ruff's
+          defaults (88 / 4). If you change ruff's settings in
+          ``pyproject.toml``, update ``.editorconfig`` to match.
+        - Makefile entries **must** use tab indentation — this is a
+          syntax rule, not a preference. Do not change it.
+    """
+    target_dir = Path(path).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    editorconfig_path = target_dir / ".editorconfig"
+
+    if editorconfig_path.exists() and not overwrite:
+        raise FileExistsError(
+            f".editorconfig already exists at {editorconfig_path}. "
+            "Pass overwrite=True to replace it."
+        )
+
+    editorconfig_path.write_text(EDITORCONFIG_TEMPLATE, encoding="utf-8")
+    logger.info("Created .editorconfig at %s", editorconfig_path)
+    return editorconfig_path
+
+
 def init_project(
     path: str | Path,
     project_name: str | None = None,
@@ -849,14 +1000,19 @@ def init_project(
     overwrite_license: bool = False,
     overwrite_contributing: bool = False,
     overwrite_env_example: bool = False,
+    overwrite_editorconfig: bool = False,
 ) -> Path:
-    """Initialise a wyby game project with git, ``.gitignore``, ``pyproject.toml``, pre-commit config, LICENSE, CONTRIBUTING.md, and ``.env.example``.
+    """Initialise a wyby game project with git, config files, and scaffolding.
+
+    Creates a git repository and writes ``.gitignore``, ``pyproject.toml``
+    (with ruff linting/formatting configuration), ``.pre-commit-config.yaml``,
+    ``LICENSE``, ``CONTRIBUTING.md``, ``.env.example``, and ``.editorconfig``.
 
     This is a convenience wrapper that calls :func:`init_git_repo`,
     :func:`create_gitignore`, :func:`create_pyproject_toml`,
     :func:`create_precommit_config`, :func:`create_license_file`,
-    :func:`create_contributing_md`, and :func:`create_env_example`
-    in sequence.
+    :func:`create_contributing_md`, :func:`create_env_example`, and
+    :func:`create_editorconfig` in sequence.
 
     Args:
         path: Directory for the new project.
@@ -869,6 +1025,7 @@ def init_project(
         overwrite_license: Passed through to :func:`create_license_file`.
         overwrite_contributing: Passed through to :func:`create_contributing_md`.
         overwrite_env_example: Passed through to :func:`create_env_example`.
+        overwrite_editorconfig: Passed through to :func:`create_editorconfig`.
 
     Returns:
         The resolved ``Path`` of the project directory.
@@ -878,8 +1035,8 @@ def init_project(
         GitError: If ``git init`` fails.
         FileExistsError: If ``.gitignore``, ``pyproject.toml``,
             ``.pre-commit-config.yaml``, ``LICENSE``,
-            ``CONTRIBUTING.md``, or ``.env.example`` exists and the
-            corresponding *overwrite_** flag is ``False``.
+            ``CONTRIBUTING.md``, ``.env.example``, or ``.editorconfig``
+            exists and the corresponding *overwrite_** flag is ``False``.
         ValueError: If *project_name* (or the inferred directory name)
             is not a valid PEP 508 project name.
     """
@@ -900,6 +1057,8 @@ def init_project(
     create_contributing_md(repo_path, name, overwrite=overwrite_contributing)
 
     create_env_example(repo_path, overwrite=overwrite_env_example)
+
+    create_editorconfig(repo_path, overwrite=overwrite_editorconfig)
 
     logger.info("Initialised wyby project at %s", repo_path)
     return repo_path

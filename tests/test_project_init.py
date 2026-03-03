@@ -1,4 +1,4 @@
-"""Tests for wyby.project_init — git, .gitignore, pyproject.toml, pre-commit config, LICENSE, CONTRIBUTING.md, and .env.example initialisation."""
+"""Tests for wyby.project_init — git, .gitignore, pyproject.toml, pre-commit config, LICENSE, CONTRIBUTING.md, .env.example, and .editorconfig initialisation."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import pytest
 
 from wyby.project_init import (
     CONTRIBUTING_TEMPLATE,
+    EDITORCONFIG_TEMPLATE,
     ENV_EXAMPLE_TEMPLATE,
     GITIGNORE_TEMPLATE,
     MIT_LICENSE_TEMPLATE,
@@ -19,6 +20,7 @@ from wyby.project_init import (
     GitNotFoundError,
     _normalise_project_name,
     create_contributing_md,
+    create_editorconfig,
     create_env_example,
     create_gitignore,
     create_license_file,
@@ -362,6 +364,37 @@ class TestCreatePyprojectToml:
         """The template should include inline caveats about pinning and pre-release."""
         assert "pre-release" in PYPROJECT_TEMPLATE
         assert "wyby>=0.1.0" in PYPROJECT_TEMPLATE
+
+    def test_template_includes_ruff_config(self) -> None:
+        """The template should include ruff tool configuration sections."""
+        assert "[tool.ruff]" in PYPROJECT_TEMPLATE
+        assert "[tool.ruff.lint]" in PYPROJECT_TEMPLATE
+        assert "[tool.ruff.format]" in PYPROJECT_TEMPLATE
+
+    def test_template_ruff_target_version(self) -> None:
+        """Ruff target-version should match wyby's minimum Python requirement."""
+        assert 'target-version = "py310"' in PYPROJECT_TEMPLATE
+
+    def test_template_ruff_line_length(self) -> None:
+        """Ruff line-length should default to 88 (Black-compatible)."""
+        assert "line-length = 88" in PYPROJECT_TEMPLATE
+
+    def test_template_ruff_lint_select(self) -> None:
+        """Ruff lint should select core rule sets."""
+        assert "select = " in PYPROJECT_TEMPLATE
+        # Core rules: pycodestyle, pyflakes, isort, pyupgrade, bugbear
+        for rule in ["E", "F", "W", "I", "UP", "B"]:
+            assert f'"{rule}"' in PYPROJECT_TEMPLATE
+
+    def test_template_ruff_format_settings(self) -> None:
+        """Ruff format should use Black-compatible defaults."""
+        assert 'quote-style = "double"' in PYPROJECT_TEMPLATE
+        assert 'indent-style = "space"' in PYPROJECT_TEMPLATE
+
+    def test_template_ruff_mentions_no_black_needed(self) -> None:
+        """The template should note that Black is not needed alongside ruff."""
+        # The caveat comment should mention that ruff replaces Black.
+        assert "Black" in PYPROJECT_TEMPLATE
 
     def test_logs_info_on_success(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -809,6 +842,108 @@ class TestCreateEnvExample:
 
 
 # ---------------------------------------------------------------------------
+# create_editorconfig
+# ---------------------------------------------------------------------------
+
+
+class TestCreateEditorconfig:
+    """Tests for create_editorconfig()."""
+
+    def test_creates_file_in_existing_dir(self, tmp_path: Path) -> None:
+        result = create_editorconfig(tmp_path)
+        editorconfig_path = tmp_path / ".editorconfig"
+
+        assert result == editorconfig_path
+        assert editorconfig_path.exists()
+
+    def test_content_matches_template(self, tmp_path: Path) -> None:
+        create_editorconfig(tmp_path)
+        content = (tmp_path / ".editorconfig").read_text(encoding="utf-8")
+
+        assert content == EDITORCONFIG_TEMPLATE
+
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        target = tmp_path / "x" / "y"
+        result = create_editorconfig(target)
+
+        assert result.exists()
+        assert target.is_dir()
+
+    def test_refuses_to_overwrite_by_default(self, tmp_path: Path) -> None:
+        (tmp_path / ".editorconfig").write_text("custom content")
+
+        with pytest.raises(FileExistsError, match="already exists"):
+            create_editorconfig(tmp_path)
+
+    def test_existing_content_preserved_when_not_overwriting(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".editorconfig").write_text("custom content")
+
+        with pytest.raises(FileExistsError):
+            create_editorconfig(tmp_path)
+
+        assert (tmp_path / ".editorconfig").read_text() == "custom content"
+
+    def test_overwrite_replaces_content(self, tmp_path: Path) -> None:
+        (tmp_path / ".editorconfig").write_text("old content")
+        create_editorconfig(tmp_path, overwrite=True)
+
+        content = (tmp_path / ".editorconfig").read_text(encoding="utf-8")
+        assert content == EDITORCONFIG_TEMPLATE
+
+    def test_template_has_root_true(self) -> None:
+        """root = true prevents parent .editorconfig files from leaking in."""
+        assert "root = true" in EDITORCONFIG_TEMPLATE
+
+    def test_template_has_python_indent(self) -> None:
+        """Python files should use 4-space indentation (PEP 8)."""
+        assert "[*.py]" in EDITORCONFIG_TEMPLATE
+        assert "indent_size = 4" in EDITORCONFIG_TEMPLATE
+        assert "indent_style = space" in EDITORCONFIG_TEMPLATE
+
+    def test_template_has_line_length(self) -> None:
+        """Line length should match ruff's default (88)."""
+        assert "max_line_length = 88" in EDITORCONFIG_TEMPLATE
+
+    def test_template_has_config_file_indent(self) -> None:
+        """TOML, YAML, and JSON files should use 2-space indentation."""
+        assert "[*.{toml,yaml,yml,json}]" in EDITORCONFIG_TEMPLATE
+
+    def test_template_has_makefile_tabs(self) -> None:
+        """Makefiles must use tab indentation (syntax requirement)."""
+        assert "[Makefile]" in EDITORCONFIG_TEMPLATE
+        assert "indent_style = tab" in EDITORCONFIG_TEMPLATE
+
+    def test_template_sets_utf8_charset(self) -> None:
+        assert "charset = utf-8" in EDITORCONFIG_TEMPLATE
+
+    def test_template_sets_lf_line_endings(self) -> None:
+        assert "end_of_line = lf" in EDITORCONFIG_TEMPLATE
+
+    def test_template_sets_final_newline(self) -> None:
+        assert "insert_final_newline = true" in EDITORCONFIG_TEMPLATE
+
+    def test_template_trims_trailing_whitespace(self) -> None:
+        assert "trim_trailing_whitespace = true" in EDITORCONFIG_TEMPLATE
+
+    def test_template_includes_caveat_comments(self) -> None:
+        """The template should include caveats about enforcement and sync with ruff."""
+        assert "ruff" in EDITORCONFIG_TEMPLATE
+        assert "pyproject.toml" in EDITORCONFIG_TEMPLATE
+
+    def test_logs_info_on_success(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        with caplog.at_level(logging.INFO):
+            create_editorconfig(tmp_path)
+
+        assert any("Created .editorconfig" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
 # init_project
 # ---------------------------------------------------------------------------
 
@@ -816,9 +951,7 @@ class TestCreateEnvExample:
 class TestInitProject:
     """Tests for init_project() — the convenience wrapper."""
 
-    def test_creates_repo_gitignore_pyproject_license_contributing_and_env_example(
-        self, tmp_path: Path
-    ) -> None:
+    def test_creates_all_scaffolding_files(self, tmp_path: Path) -> None:
         target = tmp_path / "game"
         result = init_project(target)
 
@@ -830,6 +963,7 @@ class TestInitProject:
         assert (target / "LICENSE").exists()
         assert (target / "CONTRIBUTING.md").exists()
         assert (target / ".env.example").exists()
+        assert (target / ".editorconfig").exists()
 
     def test_gitignore_has_correct_content(self, tmp_path: Path) -> None:
         target = tmp_path / "game"
@@ -1004,6 +1138,42 @@ class TestInitProject:
 
         content = (target / ".env.example").read_text(encoding="utf-8")
         assert content == ENV_EXAMPLE_TEMPLATE
+
+    def test_editorconfig_has_correct_content(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target)
+
+        content = (target / ".editorconfig").read_text(encoding="utf-8")
+        assert content == EDITORCONFIG_TEMPLATE
+
+    def test_refuses_overwrite_editorconfig_by_default(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        target.mkdir()
+        subprocess.run(["git", "init", str(target)], check=True, capture_output=True)
+        (target / ".editorconfig").write_text("custom")
+
+        with pytest.raises(FileExistsError):
+            init_project(target)
+
+    def test_overwrite_editorconfig_flag(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        target.mkdir()
+        subprocess.run(["git", "init", str(target)], check=True, capture_output=True)
+        (target / ".editorconfig").write_text("custom")
+
+        init_project(target, overwrite_editorconfig=True)
+
+        content = (target / ".editorconfig").read_text(encoding="utf-8")
+        assert content == EDITORCONFIG_TEMPLATE
+
+    def test_pyproject_includes_ruff_config(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target)
+
+        content = (target / "pyproject.toml").read_text(encoding="utf-8")
+        assert "[tool.ruff]" in content
+        assert "[tool.ruff.lint]" in content
+        assert "[tool.ruff.format]" in content
 
     def test_git_not_found_propagates(self, tmp_path: Path) -> None:
         with patch("wyby.project_init.shutil.which", return_value=None):
