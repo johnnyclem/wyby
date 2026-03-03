@@ -13,10 +13,15 @@ from wyby.app import (
     Engine,
     _DEFAULT_HEIGHT,
     _DEFAULT_TITLE,
+    _DEFAULT_TPS,
     _DEFAULT_WIDTH,
+    _DT_CLAMP,
+    _MAX_FRAME_SKIP,
     _MAX_HEIGHT,
+    _MAX_TPS,
     _MAX_WIDTH,
     _MIN_HEIGHT,
+    _MIN_TPS,
     _MIN_WIDTH,
 )
 
@@ -219,10 +224,15 @@ class TestEngineRepr:
         assert "'wyby'" in r
         assert "80" in r
         assert "24" in r
+        assert "tps=30" in r
 
     def test_repr_custom(self) -> None:
         engine = Engine(title="Snake", width=40, height=20)
-        assert repr(engine) == "Engine(title='Snake', width=40, height=20)"
+        assert repr(engine) == "Engine(title='Snake', width=40, height=20, tps=30)"
+
+    def test_repr_custom_tps(self) -> None:
+        engine = Engine(title="Snake", width=40, height=20, tps=60)
+        assert repr(engine) == "Engine(title='Snake', width=40, height=20, tps=60)"
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +360,9 @@ class TestEngineRunLoop:
         t.join(timeout=2.0)
         assert not t.is_alive()
         assert engine.running is False
-        assert tick_count >= 1
+        # With fixed timestep, stop may arrive before the accumulator
+        # fills enough for a tick, so tick_count may be 0.
+        assert tick_count >= 0
 
     def test_keyboard_interrupt_stops_loop(
         self, monkeypatch: pytest.MonkeyPatch
@@ -515,33 +527,17 @@ class TestEngineDt:
         engine.run(loop=False)
         assert engine.dt > 0.0
 
-    def test_dt_reflects_elapsed_time(self) -> None:
-        """Mock time.monotonic to verify dt calculation."""
-        fake_time = [100.0]
+    def test_dt_equals_target_dt(self) -> None:
+        """dt should be the fixed timestep (target_dt), not wall-clock."""
+        engine = Engine(tps=30)
+        engine.run(loop=False)
+        assert engine.dt == pytest.approx(1.0 / 30)
 
-        def mock_monotonic() -> float:
-            return fake_time[0]
-
-        engine = Engine()
-        with patch("wyby.app.time.monotonic", side_effect=mock_monotonic):
-            # run() calls monotonic() once to set _last_tick_time (100.0).
-            # _tick() calls monotonic() again — advance the clock first.
-            fake_time[0] = 100.0
-            # We need run() to capture 100.0, then _tick() to see 100.05.
-            call_count = [0]
-
-            def sequenced_monotonic() -> float:
-                call_count[0] += 1
-                if call_count[0] <= 1:
-                    return 100.0  # run() initialization
-                return 100.05  # _tick() measurement
-
-            with patch(
-                "wyby.app.time.monotonic", side_effect=sequenced_monotonic
-            ):
-                engine.run(loop=False)
-
-        assert engine.dt == pytest.approx(0.05)
+    def test_dt_equals_target_dt_custom_tps(self) -> None:
+        """dt should reflect the configured tps."""
+        engine = Engine(tps=60)
+        engine.run(loop=False)
+        assert engine.dt == pytest.approx(1.0 / 60)
 
     def test_dt_resets_on_new_run(self) -> None:
         engine = Engine()
@@ -564,18 +560,9 @@ class TestEngineElapsed:
     def test_elapsed_accumulates_across_ticks(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Mock time.monotonic to verify elapsed accumulation."""
-        call_count = [0]
-        # run() init: 0.0, tick1: 0.1, tick2: 0.25, tick3: 0.55
-        times = [0.0, 0.1, 0.25, 0.55]
-
-        def mock_monotonic() -> float:
-            idx = min(call_count[0], len(times) - 1)
-            val = times[idx]
-            call_count[0] += 1
-            return val
-
-        engine = Engine()
+        """elapsed = tick_count * target_dt in fixed-timestep mode."""
+        engine = Engine(tps=30)
+        target_dt = 1.0 / 30
         tick_count = [0]
         original_tick = Engine._tick
 
@@ -586,14 +573,10 @@ class TestEngineElapsed:
                 self_.stop()
 
         monkeypatch.setattr(Engine, "_tick", stop_after_three)
+        engine.run(loop=True)
 
-        with patch("wyby.app.time.monotonic", side_effect=mock_monotonic):
-            engine.run(loop=True)
-
-        # dt values: 0.1-0.0=0.1, 0.25-0.1=0.15, 0.55-0.25=0.3
-        # elapsed = 0.1 + 0.15 + 0.3 = 0.55
-        assert engine.elapsed == pytest.approx(0.55)
         assert engine.tick_count == 3
+        assert engine.elapsed == pytest.approx(3 * target_dt)
 
     def test_elapsed_resets_on_new_run(self) -> None:
         engine = Engine()
@@ -614,5 +597,290 @@ class TestEngineClockUsesMonotonic:
         engine = Engine()
         with patch("wyby.app.time.monotonic", wraps=time.monotonic) as mock:
             engine.run(loop=False)
-        # At least 2 calls: one in run() init, one in _tick().
+        # monotonic is called once in run() to set _last_tick_time.
+        # _tick() no longer calls monotonic (uses fixed timestep).
+        assert mock.call_count >= 1
+
+    def test_monotonic_called_in_loop(self) -> None:
+        """In loop mode, monotonic is called each frame iteration."""
+        engine = Engine()
+        original_tick = Engine._tick
+        tick_count = [0]
+
+        def stop_after_one(self_: Engine) -> None:
+            original_tick(self_)
+            tick_count[0] += 1
+            if tick_count[0] >= 1:
+                self_.stop()
+
+        with patch("wyby.app.time.monotonic", wraps=time.monotonic) as mock:
+            with patch.object(Engine, "_tick", stop_after_one):
+                engine.run(loop=True)
+        # run() init + at least one _run_loop iteration.
         assert mock.call_count >= 2
+
+
+# ---------------------------------------------------------------------------
+# TPS validation
+# ---------------------------------------------------------------------------
+
+
+class TestEngineTpsValidation:
+    """tps must be an int in [1, 240]."""
+
+    def test_rejects_float_tps(self) -> None:
+        with pytest.raises(TypeError, match="tps must be an int"):
+            Engine(tps=30.0)  # type: ignore[arg-type]
+
+    def test_rejects_string_tps(self) -> None:
+        with pytest.raises(TypeError, match="tps must be an int"):
+            Engine(tps="30")  # type: ignore[arg-type]
+
+    def test_rejects_bool_tps(self) -> None:
+        with pytest.raises(TypeError, match="tps must be an int"):
+            Engine(tps=True)  # type: ignore[arg-type]
+
+    def test_rejects_zero_tps(self) -> None:
+        with pytest.raises(ValueError, match="tps must be between"):
+            Engine(tps=0)
+
+    def test_rejects_negative_tps(self) -> None:
+        with pytest.raises(ValueError, match="tps must be between"):
+            Engine(tps=-1)
+
+    def test_rejects_tps_above_max(self) -> None:
+        with pytest.raises(ValueError, match="tps must be between"):
+            Engine(tps=_MAX_TPS + 1)
+
+
+# ---------------------------------------------------------------------------
+# TPS and target_dt properties
+# ---------------------------------------------------------------------------
+
+
+class TestEngineTpsProperty:
+    """tps and target_dt should expose tick rate configuration."""
+
+    def test_default_tps(self) -> None:
+        engine = Engine()
+        assert engine.tps == _DEFAULT_TPS
+
+    def test_default_tps_is_30(self) -> None:
+        assert _DEFAULT_TPS == 30
+
+    def test_custom_tps(self) -> None:
+        engine = Engine(tps=60)
+        assert engine.tps == 60
+
+    def test_minimum_tps(self) -> None:
+        engine = Engine(tps=_MIN_TPS)
+        assert engine.tps == _MIN_TPS
+
+    def test_maximum_tps(self) -> None:
+        engine = Engine(tps=_MAX_TPS)
+        assert engine.tps == _MAX_TPS
+
+    def test_tps_is_read_only(self) -> None:
+        engine = Engine()
+        with pytest.raises(AttributeError):
+            engine.tps = 60  # type: ignore[misc]
+
+    def test_target_dt_matches_tps(self) -> None:
+        engine = Engine(tps=30)
+        assert engine.target_dt == pytest.approx(1.0 / 30)
+
+    def test_target_dt_custom_tps(self) -> None:
+        engine = Engine(tps=60)
+        assert engine.target_dt == pytest.approx(1.0 / 60)
+
+    def test_target_dt_is_read_only(self) -> None:
+        engine = Engine()
+        with pytest.raises(AttributeError):
+            engine.target_dt = 0.1  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Fixed timestep accumulator
+# ---------------------------------------------------------------------------
+
+
+class TestEngineFixedTimestep:
+    """Fixed timestep: accumulator, sleep, frame-skip, and dt clamping."""
+
+    def test_dt_equals_target_dt_after_single_tick(self) -> None:
+        """dt should be target_dt even for a single tick (loop=False)."""
+        engine = Engine(tps=60)
+        engine.run(loop=False)
+        assert engine.dt == pytest.approx(1.0 / 60)
+
+    def test_elapsed_is_tick_count_times_target_dt(self) -> None:
+        """elapsed should be exactly tick_count * target_dt."""
+        engine = Engine(tps=30)
+        target_dt = 1.0 / 30
+        tick_count = [0]
+        original_tick = Engine._tick
+
+        def counting_tick(self_: Engine) -> None:
+            original_tick(self_)
+            tick_count[0] += 1
+            if tick_count[0] >= 5:
+                self_.stop()
+
+        with patch.object(Engine, "_tick", counting_tick):
+            engine.run(loop=True)
+
+        assert engine.tick_count == 5
+        assert engine.elapsed == pytest.approx(5 * target_dt)
+
+    def test_loop_sleeps_to_pace(self) -> None:
+        """The loop should call time.sleep to maintain target tick rate."""
+        mono_calls = [0]
+
+        def mock_monotonic() -> float:
+            mono_calls[0] += 1
+            if mono_calls[0] == 1:
+                return 0.0  # run() init
+            # Each frame iteration advances by exactly target_dt.
+            return (mono_calls[0] - 1) * (1.0 / 30)
+
+        engine = Engine(tps=30)
+        original_tick = Engine._tick
+        tick_count = [0]
+
+        def stop_after_two(self_: Engine) -> None:
+            original_tick(self_)
+            tick_count[0] += 1
+            if tick_count[0] >= 2:
+                self_.stop()
+
+        with patch.object(Engine, "_tick", stop_after_two):
+            with patch("wyby.app.time.monotonic", side_effect=mock_monotonic):
+                with patch("wyby.app.time.sleep") as mock_sleep:
+                    engine.run(loop=True)
+
+        # Sleep should have been called after the first frame (before
+        # stop was triggered on the second tick).
+        assert mock_sleep.called
+
+    def test_no_sleep_when_behind(self) -> None:
+        """If a frame takes longer than target_dt, no sleep should occur."""
+        mono_calls = [0]
+
+        def mock_monotonic() -> float:
+            mono_calls[0] += 1
+            if mono_calls[0] == 1:
+                return 0.0
+            if mono_calls[0] == 2:
+                # Frame took 2x target_dt — we're behind.
+                return 2.0 / 30
+            return 2.0 / 30 + (mono_calls[0] - 2) * (1.0 / 30)
+
+        engine = Engine(tps=30)
+        original_tick = Engine._tick
+        tick_count = [0]
+
+        def stop_after_two(self_: Engine) -> None:
+            original_tick(self_)
+            tick_count[0] += 1
+            if tick_count[0] >= 2:
+                self_.stop()
+
+        with patch.object(Engine, "_tick", stop_after_two):
+            with patch("wyby.app.time.monotonic", side_effect=mock_monotonic):
+                with patch("wyby.app.time.sleep"):
+                    engine.run(loop=True)
+
+        # Both ticks should run in the first frame (catching up).
+        # No sleep is needed since the accumulator was fully drained.
+        assert tick_count[0] == 2
+
+    def test_dt_clamp_on_large_gap(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Large time gaps (suspend/resume) should be clamped."""
+        mono_calls = [0]
+
+        def mock_monotonic() -> float:
+            mono_calls[0] += 1
+            if mono_calls[0] == 1:
+                return 0.0  # run() init
+            if mono_calls[0] == 2:
+                return 10.0  # 10-second gap (suspend/resume)
+            return 10.0 + (mono_calls[0] - 2) * (1.0 / 30)
+
+        engine = Engine(tps=30)
+        original_tick = Engine._tick
+        tick_count = [0]
+
+        def stop_tick(self_: Engine) -> None:
+            original_tick(self_)
+            tick_count[0] += 1
+            if tick_count[0] >= 1:
+                self_.stop()
+
+        with caplog.at_level(logging.DEBUG, logger="wyby.app"):
+            with patch.object(Engine, "_tick", stop_tick):
+                with patch(
+                    "wyby.app.time.monotonic", side_effect=mock_monotonic
+                ):
+                    with patch("wyby.app.time.sleep"):
+                        engine.run(loop=True)
+
+        # The 10-second gap should have been clamped.
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("Clamping" in m for m in messages)
+
+    def test_dt_clamp_value(self) -> None:
+        """Clamped frame_time should be _DT_CLAMP (0.25s)."""
+        assert _DT_CLAMP == 0.25
+
+    def test_frame_skip_limits_per_frame_updates(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """At most _MAX_FRAME_SKIP ticks per frame, logging when hit."""
+        mono_calls = [0]
+
+        def mock_monotonic() -> float:
+            mono_calls[0] += 1
+            if mono_calls[0] == 1:
+                return 0.0  # run() init
+            if mono_calls[0] == 2:
+                return 0.20  # 200ms gap → ~6 ticks at 30 tps
+            # Advance normally after first frame.
+            return 0.20 + (mono_calls[0] - 2) * (1.0 / 30)
+
+        engine = Engine(tps=30)
+        original_tick = Engine._tick
+        tick_count = [0]
+
+        def counting_stop(self_: Engine) -> None:
+            original_tick(self_)
+            tick_count[0] += 1
+            if tick_count[0] > _MAX_FRAME_SKIP:
+                self_.stop()
+
+        with caplog.at_level(logging.DEBUG, logger="wyby.app"):
+            with patch.object(Engine, "_tick", counting_stop):
+                with patch(
+                    "wyby.app.time.monotonic", side_effect=mock_monotonic
+                ):
+                    with patch("wyby.app.time.sleep"):
+                        engine.run(loop=True)
+
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("Frame-skip limit" in m for m in messages)
+        # First frame ran _MAX_FRAME_SKIP ticks, second frame ran 1 more.
+        assert tick_count[0] == _MAX_FRAME_SKIP + 1
+
+    def test_max_frame_skip_value(self) -> None:
+        """_MAX_FRAME_SKIP should be 5."""
+        assert _MAX_FRAME_SKIP == 5
+
+    def test_accumulator_resets_on_new_run(self) -> None:
+        """Each run() call resets the accumulator to zero."""
+        engine = Engine()
+        engine.run(loop=False)
+        engine.run(loop=False)
+        # If the accumulator leaked between runs, the second run would
+        # behave differently.  tick_count being 1 confirms a clean reset.
+        assert engine.tick_count == 1
