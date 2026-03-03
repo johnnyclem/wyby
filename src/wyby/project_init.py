@@ -1,9 +1,9 @@
-"""Utilities for initializing a wyby game project with git, .gitignore, and pyproject.toml.
+"""Utilities for initializing a wyby game project with git, .gitignore, pyproject.toml, and pre-commit config.
 
 This module provides functions to scaffold a new wyby game project directory
 with a git repository, a .gitignore tailored for Python-based terminal
-game development, and a ``pyproject.toml`` declaring the project's metadata
-and dependencies.
+game development, a ``pyproject.toml`` declaring the project's metadata
+and dependencies, and a ``.pre-commit-config.yaml`` for code-quality hooks.
 
 Caveats:
     - Requires ``git`` to be installed and available on the system PATH.
@@ -34,6 +34,13 @@ Caveats:
     - On Windows, ``git init`` may produce paths with backslashes. This
       module normalises paths with ``pathlib`` but does not attempt to
       resolve symlink or junction edge cases.
+    - The generated ``.pre-commit-config.yaml`` references pinned versions
+      of ruff and the pre-commit hooks repository. These versions will go
+      stale over time — run ``pre-commit autoupdate`` periodically to pull
+      the latest releases. The ``pre-commit`` tool itself is *not* a wyby
+      dependency; it must be installed separately
+      (``pip install pre-commit``) and activated with
+      ``pre-commit install`` inside the project's git repo.
 """
 
 from __future__ import annotations
@@ -147,6 +154,48 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+"""
+
+
+# .pre-commit-config.yaml template for a wyby game project.
+#
+# Caveats embedded as comments in the generated file:
+# - Hook versions are pinned at generation time and will go stale. Run
+#   ``pre-commit autoupdate`` periodically to keep them current.
+# - ``pre-commit`` is NOT a wyby runtime dependency. It must be installed
+#   separately (``pip install pre-commit``) and activated per-repo with
+#   ``pre-commit install``.
+# - The ruff hook handles both linting and formatting. If the project adds
+#   additional tools (mypy, bandit, etc.), they should be added as new
+#   repo entries rather than modifying the existing ones.
+PRECOMMIT_CONFIG_TEMPLATE = """\
+# Pre-commit hooks for wyby game projects.
+#
+# Caveats:
+#   - Hook versions are pinned at file-generation time and will become
+#     outdated. Run ``pre-commit autoupdate`` periodically.
+#   - pre-commit must be installed separately: pip install pre-commit
+#   - Activate hooks in this repo with: pre-commit install
+#   - To run all hooks manually: pre-commit run --all-files
+
+repos:
+  # General file-hygiene hooks.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+
+  # Ruff — fast Python linter and formatter (replaces flake8 + black + isort).
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
 """
 
 
@@ -351,17 +400,65 @@ def create_pyproject_toml(
     return toml_path
 
 
+def create_precommit_config(
+    path: str | Path,
+    *,
+    overwrite: bool = False,
+) -> Path:
+    """Write a ``.pre-commit-config.yaml`` file for a wyby game project.
+
+    The template configures ruff (linting + formatting) and common
+    file-hygiene hooks from the ``pre-commit-hooks`` repository.
+
+    Args:
+        path: Directory in which to create the config file.
+        overwrite: If ``True``, replace an existing config file.
+            Defaults to ``False`` to avoid discarding user customisations.
+
+    Returns:
+        The ``Path`` of the written ``.pre-commit-config.yaml`` file.
+
+    Raises:
+        FileExistsError: If ``.pre-commit-config.yaml`` already exists
+            and *overwrite* is ``False``.
+
+    Caveats:
+        - The ``pre-commit`` tool is **not** a wyby dependency. Install it
+          separately (``pip install pre-commit``) and run
+          ``pre-commit install`` to activate the hooks in your git repo.
+        - Hook versions are pinned at generation time. Run
+          ``pre-commit autoupdate`` periodically to keep them current.
+        - The hooks require a git repository to function. Call
+          :func:`init_git_repo` before ``pre-commit install``.
+    """
+    target_dir = Path(path).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    config_path = target_dir / ".pre-commit-config.yaml"
+
+    if config_path.exists() and not overwrite:
+        raise FileExistsError(
+            f".pre-commit-config.yaml already exists at {config_path}. "
+            "Pass overwrite=True to replace it."
+        )
+
+    config_path.write_text(PRECOMMIT_CONFIG_TEMPLATE, encoding="utf-8")
+    logger.info("Created .pre-commit-config.yaml at %s", config_path)
+    return config_path
+
+
 def init_project(
     path: str | Path,
     project_name: str | None = None,
     *,
     overwrite_gitignore: bool = False,
     overwrite_pyproject: bool = False,
+    overwrite_precommit: bool = False,
 ) -> Path:
-    """Initialise a wyby game project with git, ``.gitignore``, and ``pyproject.toml``.
+    """Initialise a wyby game project with git, ``.gitignore``, ``pyproject.toml``, and pre-commit config.
 
     This is a convenience wrapper that calls :func:`init_git_repo`,
-    :func:`create_gitignore`, and :func:`create_pyproject_toml` in sequence.
+    :func:`create_gitignore`, :func:`create_pyproject_toml`, and
+    :func:`create_precommit_config` in sequence.
 
     Args:
         path: Directory for the new project.
@@ -369,6 +466,7 @@ def init_project(
             ``None``, defaults to the directory name of *path*.
         overwrite_gitignore: Passed through to :func:`create_gitignore`.
         overwrite_pyproject: Passed through to :func:`create_pyproject_toml`.
+        overwrite_precommit: Passed through to :func:`create_precommit_config`.
 
     Returns:
         The resolved ``Path`` of the project directory.
@@ -376,8 +474,9 @@ def init_project(
     Raises:
         GitNotFoundError: If git is not available.
         GitError: If ``git init`` fails.
-        FileExistsError: If ``.gitignore`` or ``pyproject.toml`` exists and
-            the corresponding *overwrite_** flag is ``False``.
+        FileExistsError: If ``.gitignore``, ``pyproject.toml``, or
+            ``.pre-commit-config.yaml`` exists and the corresponding
+            *overwrite_** flag is ``False``.
         ValueError: If *project_name* (or the inferred directory name)
             is not a valid PEP 508 project name.
     """
@@ -386,6 +485,8 @@ def init_project(
 
     name = project_name if project_name is not None else repo_path.name
     create_pyproject_toml(repo_path, name, overwrite=overwrite_pyproject)
+
+    create_precommit_config(repo_path, overwrite=overwrite_precommit)
 
     logger.info("Initialised wyby project at %s", repo_path)
     return repo_path

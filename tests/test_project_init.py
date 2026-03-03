@@ -1,4 +1,4 @@
-"""Tests for wyby.project_init — git, .gitignore, and pyproject.toml initialisation."""
+"""Tests for wyby.project_init — git, .gitignore, pyproject.toml, and pre-commit config initialisation."""
 
 from __future__ import annotations
 
@@ -10,11 +10,13 @@ import pytest
 
 from wyby.project_init import (
     GITIGNORE_TEMPLATE,
+    PRECOMMIT_CONFIG_TEMPLATE,
     PYPROJECT_TEMPLATE,
     GitError,
     GitNotFoundError,
     _normalise_project_name,
     create_gitignore,
+    create_precommit_config,
     create_pyproject_toml,
     init_git_repo,
     init_project,
@@ -367,6 +369,101 @@ class TestCreatePyprojectToml:
 
 
 # ---------------------------------------------------------------------------
+# create_precommit_config
+# ---------------------------------------------------------------------------
+
+
+class TestCreatePrecommitConfig:
+    """Tests for create_precommit_config()."""
+
+    def test_creates_config_in_existing_dir(self, tmp_path: Path) -> None:
+        result = create_precommit_config(tmp_path)
+        config = tmp_path / ".pre-commit-config.yaml"
+
+        assert result == config
+        assert config.exists()
+
+    def test_config_content_matches_template(self, tmp_path: Path) -> None:
+        create_precommit_config(tmp_path)
+        content = (tmp_path / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+
+        assert content == PRECOMMIT_CONFIG_TEMPLATE
+
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        target = tmp_path / "x" / "y"
+        result = create_precommit_config(target)
+
+        assert result.exists()
+        assert target.is_dir()
+
+    def test_refuses_to_overwrite_by_default(self, tmp_path: Path) -> None:
+        (tmp_path / ".pre-commit-config.yaml").write_text("custom content")
+
+        with pytest.raises(FileExistsError, match="already exists"):
+            create_precommit_config(tmp_path)
+
+    def test_existing_content_preserved_when_not_overwriting(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".pre-commit-config.yaml").write_text("custom content")
+
+        with pytest.raises(FileExistsError):
+            create_precommit_config(tmp_path)
+
+        assert (tmp_path / ".pre-commit-config.yaml").read_text() == "custom content"
+
+    def test_overwrite_replaces_content(self, tmp_path: Path) -> None:
+        (tmp_path / ".pre-commit-config.yaml").write_text("old content")
+        create_precommit_config(tmp_path, overwrite=True)
+
+        content = (tmp_path / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+        assert content == PRECOMMIT_CONFIG_TEMPLATE
+
+    def test_template_includes_pre_commit_hooks_repo(self) -> None:
+        assert "https://github.com/pre-commit/pre-commit-hooks" in PRECOMMIT_CONFIG_TEMPLATE
+
+    def test_template_includes_ruff_hooks(self) -> None:
+        assert "https://github.com/astral-sh/ruff-pre-commit" in PRECOMMIT_CONFIG_TEMPLATE
+        assert "id: ruff" in PRECOMMIT_CONFIG_TEMPLATE
+        assert "id: ruff-format" in PRECOMMIT_CONFIG_TEMPLATE
+
+    def test_template_includes_file_hygiene_hooks(self) -> None:
+        assert "id: trailing-whitespace" in PRECOMMIT_CONFIG_TEMPLATE
+        assert "id: end-of-file-fixer" in PRECOMMIT_CONFIG_TEMPLATE
+        assert "id: check-yaml" in PRECOMMIT_CONFIG_TEMPLATE
+        assert "id: check-toml" in PRECOMMIT_CONFIG_TEMPLATE
+
+    def test_template_includes_large_file_check(self) -> None:
+        assert "id: check-added-large-files" in PRECOMMIT_CONFIG_TEMPLATE
+
+    def test_template_includes_caveat_comments(self) -> None:
+        """The template should include inline caveats about installation and updates."""
+        assert "pre-commit autoupdate" in PRECOMMIT_CONFIG_TEMPLATE
+        assert "pip install pre-commit" in PRECOMMIT_CONFIG_TEMPLATE
+        assert "pre-commit install" in PRECOMMIT_CONFIG_TEMPLATE
+
+    def test_template_is_valid_yaml(self, tmp_path: Path) -> None:
+        """The generated file should be parseable as YAML."""
+        # We don't import yaml as a dependency; just verify it doesn't
+        # have obvious structural issues by checking key markers.
+        assert PRECOMMIT_CONFIG_TEMPLATE.startswith("#")
+        assert "repos:" in PRECOMMIT_CONFIG_TEMPLATE
+        assert "rev:" in PRECOMMIT_CONFIG_TEMPLATE
+
+    def test_logs_info_on_success(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        with caplog.at_level(logging.INFO):
+            create_precommit_config(tmp_path)
+
+        assert any(
+            "Created .pre-commit-config.yaml" in r.message for r in caplog.records
+        )
+
+
+# ---------------------------------------------------------------------------
 # init_project
 # ---------------------------------------------------------------------------
 
@@ -382,6 +479,7 @@ class TestInitProject:
         assert (target / ".git").is_dir()
         assert (target / ".gitignore").exists()
         assert (target / "pyproject.toml").exists()
+        assert (target / ".pre-commit-config.yaml").exists()
 
     def test_gitignore_has_correct_content(self, tmp_path: Path) -> None:
         target = tmp_path / "game"
@@ -434,6 +532,33 @@ class TestInitProject:
 
         content = (target / "pyproject.toml").read_text(encoding="utf-8")
         assert 'name = "game"' in content
+
+    def test_precommit_config_has_correct_content(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target)
+
+        content = (target / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+        assert content == PRECOMMIT_CONFIG_TEMPLATE
+
+    def test_refuses_overwrite_precommit_by_default(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        target.mkdir()
+        subprocess.run(["git", "init", str(target)], check=True, capture_output=True)
+        (target / ".pre-commit-config.yaml").write_text("custom")
+
+        with pytest.raises(FileExistsError):
+            init_project(target)
+
+    def test_overwrite_precommit_flag(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        target.mkdir()
+        subprocess.run(["git", "init", str(target)], check=True, capture_output=True)
+        (target / ".pre-commit-config.yaml").write_text("custom")
+
+        init_project(target, overwrite_precommit=True)
+
+        content = (target / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+        assert content == PRECOMMIT_CONFIG_TEMPLATE
 
     def test_git_not_found_propagates(self, tmp_path: Path) -> None:
         with patch("wyby.project_init.shutil.which", return_value=None):
