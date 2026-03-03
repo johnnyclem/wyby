@@ -248,6 +248,17 @@ from wyby.installation_from_source import (
     format_installation_guide,
     get_entries_by_category as get_installation_entries_by_category,
 )
+from wyby.terminal_troubleshooting import (
+    TROUBLESHOOTING_CATEGORIES,
+    TROUBLESHOOTING_ENTRIES,
+    DiagnosticResult,
+    TroubleshootingEntry,
+    diagnose_terminal,
+    format_diagnostic_report,
+    format_troubleshooting_for_category,
+    format_troubleshooting_guide,
+    get_entries_by_category as get_troubleshooting_entries_by_category,
+)
 
 # Attach a NullHandler so that wyby's internal log messages are silently
 # discarded unless the application (game) configures logging. This follows
@@ -467,4 +478,13 @@ __all__ = [
     "format_installation_for_category",
     "format_installation_guide",
     "get_installation_entries_by_category",
+    "TROUBLESHOOTING_CATEGORIES",
+    "TROUBLESHOOTING_ENTRIES",
+    "DiagnosticResult",
+    "TroubleshootingEntry",
+    "diagnose_terminal",
+    "format_diagnostic_report",
+    "format_troubleshooting_for_category",
+    "format_troubleshooting_guide",
+    "get_troubleshooting_entries_by_category",
 ]
