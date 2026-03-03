@@ -36,10 +36,12 @@ Caveats:
       attached to at most one entity at a time.  Attaching a component
       that is already attached elsewhere raises :class:`RuntimeError`.
       Detach it first.
-    - **No automatic update scheduling.**  The ``update(dt)`` hook
-      exists for convenience, but nothing calls it automatically.
-      Your scene or game loop must iterate over entities and their
-      components to call ``update`` each tick.
+    - **No systems.**  wyby has no ``System`` base class and no
+      automatic update scheduling.  The ``update(dt)`` hook exists for
+      convenience, but nothing calls it automatically — there is no
+      framework-managed system loop.  Your scene or game loop must
+      iterate over entities and call ``update`` each tick explicitly.
+      See ``docs/entity_model.md`` for the rationale and migration path.
     - **Lifecycle hooks are synchronous.**  ``on_attach`` and
       ``on_detach`` run immediately during attach/detach.  Avoid
       heavy work in these hooks — defer it to ``update``.

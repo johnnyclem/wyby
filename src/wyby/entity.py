@@ -11,9 +11,12 @@ and "give me all entities tagged 'enemy'."
 
 Caveats:
     - **Not a full ECS.**  There is no archetype storage, no bitset
-      component masks, no system scheduling.  If your game outgrows
-      this model, you can bring in ``esper`` or another ECS library
-      and use wyby only for rendering.
+      component masks, and no systems layer.  wyby has no ``System``
+      base class and no automatic component-update scheduling — your
+      game loop or scene must call ``entity.update(dt)`` explicitly.
+      If your game outgrows this model, you can bring in ``esper`` or
+      another ECS library and use wyby only for rendering.  See
+      ``docs/entity_model.md`` for the full rationale.
     - **IDs are auto-assigned.**  Each entity receives a unique integer
       id from a module-level counter.  IDs are not recycled — once an
       entity is created, its id is permanently consumed.  For typical

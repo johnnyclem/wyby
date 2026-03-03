@@ -15,6 +15,11 @@ Caveats:
       state shared between scenes. Cross-scene communication must be
       done explicitly (e.g., via a shared context object passed to
       scene constructors).
+    - **No systems.**  Scenes do not have a ``register_system()`` method
+      or any automatic component-update loop.  Game logic that in a full
+      ECS would be a "system" (e.g., applying velocity, checking
+      collisions) lives in your :meth:`Scene.update` override as explicit
+      iteration.  See ``docs/entity_model.md`` for details and examples.
     - Scene transitions (push, pop, replace) are explicit. There is no
       automatic transition animation system in v0.1.
     - The stack enforces a maximum depth (default 32) to catch runaway
