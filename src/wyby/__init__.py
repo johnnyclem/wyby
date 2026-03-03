@@ -117,6 +117,7 @@ from wyby.scene import Scene, SceneStack
 from wyby.signal_handlers import SignalHandler
 from wyby.transition import Cut, FadeTransition, SlideTransition, Transition
 from wyby.button import Button
+from wyby.dialog import Dialog
 from wyby.focus import FocusManager
 from wyby.healthbar import HealthBar
 from wyby.widget import Widget
@@ -243,6 +244,7 @@ __all__ = [
     "Transition",
     "Velocity",
     "Button",
+    "Dialog",
     "FocusManager",
     "HealthBar",
     "Widget",
