@@ -397,6 +397,73 @@ class Entity:
         )
         return component
 
+    def get_component(self, component_type: type[Component]) -> Component | None:
+        """Return the component of the given type, or ``None``.
+
+        This is the primary way to query an entity's components.  It
+        avoids the need to access internal storage directly.
+
+        Args:
+            component_type: The exact class of the component to look up
+                (e.g. ``Position``, not an instance).
+
+        Returns:
+            The component instance, or ``None`` if the entity does not
+            have a component of that type.
+
+        Raises:
+            TypeError: If *component_type* is not a type or is not a
+                subclass of :class:`~wyby.component.Component`.
+
+        Caveats:
+            - **Exact class match only.**  Passing a base class will not
+              find subclass components.  ``get_component(Health)`` will
+              not return an ``AdvancedHealth`` component.
+            - **This is simple composition, not a full ECS.**  There are
+              no bitset queries, no archetype tables, and no way to query
+              across all entities for a component type.  If you need those
+              patterns, consider a dedicated ECS library like ``esper`` and
+              use wyby only for rendering.  See ``docs/entity_model.md``
+              for migration guidance.
+        """
+        from wyby.component import Component as _Component
+
+        if not isinstance(component_type, type) or not issubclass(
+            component_type, _Component
+        ):
+            raise TypeError(
+                f"component_type must be a Component subclass, "
+                f"got {component_type!r}"
+            )
+        return self._components.get(component_type)
+
+    def has_component(self, component_type: type[Component]) -> bool:
+        """Check whether this entity has a component of the given type.
+
+        Args:
+            component_type: The exact class of the component to check.
+
+        Returns:
+            ``True`` if the entity has the component, ``False`` otherwise.
+
+        Raises:
+            TypeError: If *component_type* is not a type or is not a
+                subclass of :class:`~wyby.component.Component`.
+
+        Caveats:
+            - **Exact class match only**, same as :meth:`get_component`.
+        """
+        from wyby.component import Component as _Component
+
+        if not isinstance(component_type, type) or not issubclass(
+            component_type, _Component
+        ):
+            raise TypeError(
+                f"component_type must be a Component subclass, "
+                f"got {component_type!r}"
+            )
+        return component_type in self._components
+
     def update(self, dt: float) -> None:
         """Update all attached components for one tick.
 

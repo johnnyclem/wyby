@@ -15,7 +15,7 @@ Usage::
     e.add_component(Velocity(5.0, 0.0))  # 5 cells/sec rightward
 
     # Each tick, call update to apply velocity:
-    vel = e._components[Velocity]
+    vel = e.get_component(Velocity)
     vel.update(1 / 30)  # dt = one tick at 30 FPS
 
 Caveats:
@@ -132,7 +132,7 @@ class Velocity(Component):
         if self._entity is None:
             return
         from wyby.position import Position
-        pos = self._entity._components.get(Position)
+        pos = self._entity.get_component(Position)
         if pos is None:
             return
         pos._x += self._vx * dt

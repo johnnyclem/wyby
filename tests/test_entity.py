@@ -654,6 +654,99 @@ class TestEntityUpdate:
 
 
 # ---------------------------------------------------------------------------
+# get_component
+# ---------------------------------------------------------------------------
+
+
+class TestGetComponent:
+    """Entity.get_component returns the component or None."""
+
+    def test_get_attached_component(self) -> None:
+        e = Entity(entity_id=900)
+        h = _Health(50)
+        e.add_component(h)
+        assert e.get_component(_Health) is h
+
+    def test_get_returns_none_when_absent(self) -> None:
+        e = Entity(entity_id=901)
+        assert e.get_component(_Health) is None
+
+    def test_get_exact_class_only(self) -> None:
+        """get_component(Health) does not return AdvancedHealth."""
+        e = Entity(entity_id=902)
+        ah = _AdvancedHealth()
+        e.add_component(ah)
+        assert e.get_component(_Health) is None
+        assert e.get_component(_AdvancedHealth) is ah
+
+    def test_get_multiple_types(self) -> None:
+        e = Entity(entity_id=903)
+        h = _Health()
+        v = _Velocity(1.0, 2.0)
+        e.add_component(h)
+        e.add_component(v)
+        assert e.get_component(_Health) is h
+        assert e.get_component(_Velocity) is v
+
+    def test_get_after_remove_returns_none(self) -> None:
+        e = Entity(entity_id=904)
+        e.add_component(_Health())
+        e.remove_component(_Health)
+        assert e.get_component(_Health) is None
+
+    def test_get_non_component_type_raises_type_error(self) -> None:
+        e = Entity(entity_id=905)
+        with pytest.raises(TypeError, match="must be a Component subclass"):
+            e.get_component(str)  # type: ignore[arg-type]
+
+    def test_get_non_type_raises_type_error(self) -> None:
+        e = Entity(entity_id=906)
+        with pytest.raises(TypeError, match="must be a Component subclass"):
+            e.get_component("Health")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# has_component
+# ---------------------------------------------------------------------------
+
+
+class TestHasComponent:
+    """Entity.has_component checks for component presence."""
+
+    def test_has_returns_true_when_attached(self) -> None:
+        e = Entity(entity_id=910)
+        e.add_component(_Health())
+        assert e.has_component(_Health) is True
+
+    def test_has_returns_false_when_absent(self) -> None:
+        e = Entity(entity_id=911)
+        assert e.has_component(_Health) is False
+
+    def test_has_exact_class_only(self) -> None:
+        """has_component(Health) is False when only AdvancedHealth is attached."""
+        e = Entity(entity_id=912)
+        e.add_component(_AdvancedHealth())
+        assert e.has_component(_Health) is False
+        assert e.has_component(_AdvancedHealth) is True
+
+    def test_has_after_remove(self) -> None:
+        e = Entity(entity_id=913)
+        e.add_component(_Health())
+        e.remove_component(_Health)
+        assert e.has_component(_Health) is False
+
+    def test_has_non_component_type_raises_type_error(self) -> None:
+        e = Entity(entity_id=914)
+        with pytest.raises(TypeError, match="must be a Component subclass"):
+            e.has_component(int)  # type: ignore[arg-type]
+
+    def test_has_non_type_raises_type_error(self) -> None:
+        e = Entity(entity_id=915)
+        with pytest.raises(TypeError, match="must be a Component subclass"):
+            e.has_component(42)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
 # Import from package root
 # ---------------------------------------------------------------------------
 
