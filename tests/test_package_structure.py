@@ -17,7 +17,6 @@ import wyby
 # The modules defined in SCOPE.md's "Proposed Package Structure".
 # _platform is internal (prefixed with _); the rest are public.
 EXPECTED_PUBLIC_MODULES = [
-    "save",
 ]
 
 EXPECTED_INTERNAL_MODULES: list[str] = [
@@ -33,6 +32,7 @@ EXPECTED_EXISTING_MODULES = [
     "input",
     "project_init",
     "renderer",
+    "save",
     "scene",
     "_platform",
 ]

@@ -116,6 +116,18 @@ from wyby.renderer import LiveDisplay, Renderer, create_console
 from wyby.test_renderer import TestRendererBuffer
 from wyby.resize import ResizeHandler, get_terminal_size
 from wyby.scene import Scene, SceneStack
+from wyby.save import (
+    SaveError,
+    SaveFormatError,
+    LoadError,
+    SchemaError,
+    Saveable,
+    SaveManager,
+    SlotManager,
+    get_serializer,
+    validate_schema,
+    coerce_types,
+)
 from wyby.signal_handlers import SignalHandler
 from wyby.transition import Cut, FadeTransition, SlideTransition, Transition
 from wyby.button import Button
@@ -319,6 +331,12 @@ __all__ = [
     "ResizeHandler",
     "Scene",
     "SceneStack",
+    "SaveError",
+    "SaveFormatError",
+    "SaveManager",
+    "SlotManager",
+    "SchemaError",
+    "Saveable",
     "TerminalCapabilities",
     "char_width",
     "check_emoji_warning",
@@ -375,6 +393,9 @@ __all__ = [
     "SlideTransition",
     "Transition",
     "Velocity",
+    "validate_schema",
+    "coerce_types",
+    "get_serializer",
     "Button",
     "Dialog",
     "FocusManager",
