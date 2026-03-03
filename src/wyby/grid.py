@@ -476,6 +476,161 @@ class CellBuffer:
         ]
 
 
+class DoubleBuffer:
+    """Simulated double-buffering using two :class:`CellBuffer` instances.
+
+    Provides the familiar double-buffer *pattern* — game code draws into a
+    back buffer while the renderer reads from the front buffer, then a
+    :meth:`swap` exchanges them — but this is **not true double-buffering**.
+
+    Why "simulated" (not true)
+    --------------------------
+    True double-buffering (as in GPU-backed graphics) gives **atomic page
+    flips**: the display switches from one fully-rendered frame to another
+    in a single vertical-blank interval, eliminating tearing and flicker.
+    Terminal output cannot do this:
+
+    - **No atomic display update.**  Rich writes ANSI escape sequences to
+      stdout sequentially.  The terminal processes them character by
+      character, so partial frames are visible during the write.  The
+      ``swap()`` here is just a Python reference swap — it does not change
+      what is on screen until the next ``present()`` call.
+    - **No vsync.**  There is no synchronisation with the terminal's
+      refresh rate.  The game loop pushes frames whenever it likes.
+    - **Flicker is still possible.**  The same flicker sources that affect
+      single-buffer rendering (slow terminals, SSH latency, large grids)
+      apply equally here.  ``DoubleBuffer`` does not reduce flicker.
+    - **No parallel rendering pipeline.**  In a GPU system, the GPU reads
+      the front buffer for display while the CPU writes to the back buffer
+      concurrently.  Here, the single-threaded game loop writes the back
+      buffer and then the renderer reads the front buffer sequentially.
+
+    What it *does* provide
+    ----------------------
+    - **Logical separation**: game code always writes to :attr:`back` and
+      the renderer always reads from :attr:`front`.  This makes the
+      contract explicit and prevents accidentally reading a half-drawn
+      frame (within the single-threaded game loop).
+    - **Automatic clear-on-swap**: after :meth:`swap`, the new back buffer
+      is cleared and ready for the next frame.  This saves the game loop
+      from calling ``clear()`` manually.
+    - **Familiar API**: developers coming from graphics programming will
+      recognise the pattern, even though the underlying mechanism is
+      fundamentally different from hardware double-buffering.
+
+    Parameters
+    ----------
+    width:
+        Number of columns.  Clamped to [``_MIN_DIMENSION``,
+        ``_MAX_DIMENSION``] by :class:`CellBuffer`.
+    height:
+        Number of rows.  Clamped to [``_MIN_DIMENSION``,
+        ``_MAX_DIMENSION``] by :class:`CellBuffer`.
+
+    Caveats
+    -------
+    - **Memory cost is doubled.**  Two full CellBuffer grids are
+      allocated.  For an 80×24 buffer this is 3 840 Cell objects
+      (vs. 1 920 for a single buffer).  For 200×60, it is 24 000.
+    - **Swap is O(1)** — it only swaps two Python references and then
+      clears the new back buffer (which is O(width × height)).
+    - **Not thread-safe.**  If concurrent threads read ``front`` while
+      the game thread calls ``swap()``, the reference swap is atomic
+      (Python's GIL guarantees this for simple attribute assignment) but
+      the subsequent ``clear()`` on the new back buffer is not
+      coordinated.  In practice, wyby's single-threaded game loop makes
+      this moot.
+    - **Does not reduce rendering cost.**  The renderer still does a
+      full re-render of whatever buffer it receives.  The only way to
+      reduce rendering cost is to reduce grid size or style complexity.
+    """
+
+    def __init__(self, width: int, height: int) -> None:
+        self._front = CellBuffer(width, height)
+        self._back = CellBuffer(width, height)
+        # Use the clamped dimensions from the CellBuffer.
+        self._width = self._front.width
+        self._height = self._front.height
+        self._swap_count: int = 0
+
+    @property
+    def width(self) -> int:
+        """Number of columns in each buffer."""
+        return self._width
+
+    @property
+    def height(self) -> int:
+        """Number of rows in each buffer."""
+        return self._height
+
+    @property
+    def front(self) -> CellBuffer:
+        """The front buffer — the renderer reads from this.
+
+        After :meth:`swap`, this contains the frame that was just drawn
+        into the back buffer.  Present this to the renderer.
+
+        Caveat: modifying the front buffer between ``swap()`` and
+        ``present()`` defeats the purpose of double-buffering.  Treat
+        it as read-only after the swap.
+        """
+        return self._front
+
+    @property
+    def back(self) -> CellBuffer:
+        """The back buffer — game code draws into this.
+
+        Write characters, styles, and entities here during the update
+        phase of the game loop.  When drawing is complete, call
+        :meth:`swap` to promote this buffer to the front.
+
+        After :meth:`swap`, the back buffer is cleared automatically
+        and ready for the next frame.
+        """
+        return self._back
+
+    @property
+    def swap_count(self) -> int:
+        """Number of times :meth:`swap` has been called."""
+        return self._swap_count
+
+    def swap(self) -> None:
+        """Exchange front and back buffers, then clear the new back buffer.
+
+        After this call:
+
+        - :attr:`front` contains what was just drawn (the old back buffer).
+        - :attr:`back` is a freshly cleared buffer ready for the next frame.
+
+        The swap itself is an O(1) reference swap.  The subsequent
+        ``clear()`` on the new back buffer is O(width × height).
+
+        Caveat: this does **not** update the terminal display.  The caller
+        must still pass :attr:`front` to :meth:`Renderer.present()
+        <wyby.renderer.Renderer.present>` to push the frame to the screen.
+        The "swap" is purely a data-structure operation, not a display
+        operation.
+        """
+        self._front, self._back = self._back, self._front
+        self._back.clear()
+        self._swap_count += 1
+
+    def clear(self) -> None:
+        """Clear both front and back buffers.
+
+        Useful for full resets (e.g., scene transitions).  After this
+        call, both buffers contain only default blank cells.
+        """
+        self._front.clear()
+        self._back.clear()
+
+    def __repr__(self) -> str:
+        return (
+            f"DoubleBuffer(width={self._width}, height={self._height}, "
+            f"swap_count={self._swap_count})"
+        )
+
+
 def clip_to_terminal(buffer: CellBuffer) -> CellBuffer:
     """Clip a CellBuffer to the current terminal dimensions.
 

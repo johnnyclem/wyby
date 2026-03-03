@@ -46,7 +46,7 @@ from wyby.diagnostics import (
     detect_capabilities,
 )
 from wyby.event import Event, EventQueue
-from wyby.grid import Cell, CellBuffer, clip_to_terminal
+from wyby.grid import Cell, CellBuffer, DoubleBuffer, clip_to_terminal
 from wyby.unicode import (
     char_width,
     contains_emoji,
@@ -106,6 +106,7 @@ __all__ = [
     "configure_logging",
     "create_console",
     "detect_capabilities",
+    "DoubleBuffer",
     "disable_alt_screen",
     "downgrade_color",
     "enable_alt_screen",
