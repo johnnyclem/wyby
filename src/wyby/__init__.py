@@ -181,6 +181,20 @@ from wyby.example_platforms import (
     check_example_platform,
     format_platform_check_results,
 )
+from wyby.controls_doc import (
+    CONTROL_CAVEATS,
+    SUPPORTED_KEYS,
+    ControlCaveat,
+    ControlsDoc,
+    SupportedKey,
+    caveats_by_category,
+    controls_for_all_examples,
+    controls_for_example,
+    format_all_controls_docs,
+    format_controls_doc,
+    format_controls_reference,
+    keys_by_category,
+)
 
 # Attach a NullHandler so that wyby's internal log messages are silently
 # discarded unless the application (game) configures logging. This follows
@@ -347,4 +361,16 @@ __all__ = [
     "check_all_example_platforms",
     "check_example_platform",
     "format_platform_check_results",
+    "CONTROL_CAVEATS",
+    "SUPPORTED_KEYS",
+    "ControlCaveat",
+    "ControlsDoc",
+    "SupportedKey",
+    "caveats_by_category",
+    "controls_for_all_examples",
+    "controls_for_example",
+    "format_all_controls_docs",
+    "format_controls_doc",
+    "format_controls_reference",
+    "keys_by_category",
 ]
