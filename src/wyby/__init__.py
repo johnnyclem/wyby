@@ -50,6 +50,7 @@ from wyby.diagnostics import (
 )
 from wyby.event import Event, EventQueue
 from wyby.input import InputManager, InputMode, KeyEvent, MouseEvent, parse_input_events, parse_key_events
+from wyby.input_context import InputContext, InputContextStack
 from wyby.keymap import KeyBinding, KeyMap
 from wyby.grid import Cell, CellBuffer, DoubleBuffer, clip_to_terminal
 from wyby.unicode import (
@@ -112,6 +113,8 @@ __all__ = [
     "EngineConfig",
     "Event",
     "EventQueue",
+    "InputContext",
+    "InputContextStack",
     "InputManager",
     "InputMode",
     "KeyBinding",
