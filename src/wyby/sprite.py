@@ -9,7 +9,9 @@ multi-line ASCII art into positioned :class:`~wyby.entity.Entity`
 instances, each carrying a :class:`Sprite` component, and
 :func:`from_image`, a factory function that converts a Pillow
 :class:`~PIL.Image.Image` into positioned entities with per-pixel
-colour styling.
+colour styling, and :func:`from_image_with_fallback`, which tries
+:func:`from_image` first and falls back to :func:`from_text` when
+image conversion fails.
 
 Usage::
 
@@ -666,6 +668,151 @@ def from_image(
         len(entities), width, height,
     )
     return entities
+
+
+def from_image_with_fallback(
+    image: Image.Image | None,
+    fallback_text: str,
+    *,
+    origin_x: int = 0,
+    origin_y: int = 0,
+    char: str = _DEFAULT_IMAGE_CHAR,
+    skip_alpha: bool = True,
+    alpha_threshold: int = 0,
+    fallback_style: Style | None = None,
+    skip_whitespace: bool = True,
+) -> list[Entity]:
+    """Try :func:`from_image`; fall back to :func:`from_text` on failure.
+
+    Attempts image-based sprite creation first.  If that fails for any
+    reason — Pillow not installed, corrupt image data, invalid dimensions,
+    or *image* is ``None`` — the function silently degrades to text-based
+    sprite creation using *fallback_text*.
+
+    A warning is logged (via :mod:`logging`) whenever the fallback is
+    triggered so that developers can see *why* the image path failed.
+
+    Example::
+
+        from wyby.sprite import from_image_with_fallback
+
+        # Pillow available — uses the image:
+        from PIL import Image
+        img = Image.open("hero.png").resize((8, 8))
+        entities = from_image_with_fallback(img, "@@\\n@@")
+
+        # Pillow unavailable — pass None, text fallback is used:
+        entities = from_image_with_fallback(None, "@@\\n@@")
+
+    Args:
+        image: A Pillow :class:`~PIL.Image.Image`, or ``None`` if the
+            image could not be loaded (e.g. Pillow is not installed).
+            When ``None``, the function skips straight to the text
+            fallback.
+        fallback_text: Multi-line ASCII art used when the image path
+            fails.  Passed directly to :func:`from_text`.
+        origin_x: X offset for all entity positions.  Shared by both
+            the image and text paths.  Defaults to 0.
+        origin_y: Y offset for all entity positions.  Shared by both
+            the image and text paths.  Defaults to 0.
+        char: Character used for image pixels (ignored when falling
+            back to text).  Defaults to ``"█"`` (U+2588).
+        skip_alpha: Whether to skip transparent pixels in the image
+            path.  Ignored during text fallback.  Defaults to ``True``.
+        alpha_threshold: Alpha cutoff for transparency.  Ignored
+            during text fallback.  Defaults to 0.
+        fallback_style: :class:`~rich.style.Style` applied to every
+            Sprite in the text fallback.  Ignored when the image path
+            succeeds.  Defaults to ``Style.null()``.
+        skip_whitespace: Whether to skip spaces in the text fallback.
+            Ignored when the image path succeeds.  Defaults to ``True``.
+
+    Returns:
+        A list of :class:`~wyby.entity.Entity` instances, each with a
+        :class:`Sprite` component.  The source (image or text) is
+        transparent to the caller.
+
+    Raises:
+        TypeError: If *fallback_text* is not a string.
+        ValueError: If the text fallback itself fails (e.g. empty text).
+            The text fallback is the last resort — if it also fails,
+            the exception propagates.
+
+    Caveats:
+        - **The text fallback will not look like the image.**  Terminal
+          ASCII art is a fundamentally different medium from raster
+          images.  The fallback exists for graceful degradation, not
+          visual equivalence.  Design your fallback text to be a
+          *recognisable* representation of the sprite, not a faithful
+          reproduction.
+        - **The image and text paths produce different entity counts.**
+          An 8×8 image produces up to 64 entities; a 3-line ASCII art
+          block might produce 10.  Game logic that depends on entity
+          count, bounding boxes, or pixel-level positions must account
+          for both paths.
+        - **Logging reveals the failure reason.**  When the fallback
+          triggers, a ``WARNING``-level log message is emitted with the
+          exception details.  Enable logging to diagnose why images are
+          not loading in production.
+        - **None is the expected input when Pillow is unavailable.**
+          If your code conditionally imports Pillow, pass ``None`` as
+          the image when the import fails.  This is cheaper than
+          catching ImportError inside this function.
+        - **Image-specific parameters are ignored during fallback.**
+          ``char``, ``skip_alpha``, and ``alpha_threshold`` only apply
+          to the image path.  ``fallback_style`` and ``skip_whitespace``
+          only apply to the text path.  ``origin_x`` and ``origin_y``
+          apply to both.
+    """
+    # Validate fallback_text eagerly so callers get a clear error even
+    # when the image path succeeds.  This catches typos like passing
+    # None as fallback_text before any work is done.
+    if not isinstance(fallback_text, str):
+        raise TypeError(
+            f"fallback_text must be a string, got {type(fallback_text).__name__}"
+        )
+
+    # Fast path: no image provided — skip straight to text.
+    if image is None:
+        _logger.warning(
+            "from_image_with_fallback: image is None, using text fallback"
+        )
+        return from_text(
+            fallback_text,
+            origin_x=origin_x,
+            origin_y=origin_y,
+            style=fallback_style,
+            skip_whitespace=skip_whitespace,
+        )
+
+    # Try the image path.
+    try:
+        return from_image(
+            image,
+            origin_x=origin_x,
+            origin_y=origin_y,
+            char=char,
+            skip_alpha=skip_alpha,
+            alpha_threshold=alpha_threshold,
+        )
+    except Exception as exc:
+        # Image conversion failed — log the reason and fall back to text.
+        # This catches ImportError (Pillow missing), TypeError (bad image
+        # type), ValueError (zero-size image), and any Pillow-internal
+        # errors (corrupt data, unsupported mode, etc.).
+        _logger.warning(
+            "from_image_with_fallback: image conversion failed (%s: %s), "
+            "using text fallback",
+            type(exc).__name__,
+            exc,
+        )
+        return from_text(
+            fallback_text,
+            origin_x=origin_x,
+            origin_y=origin_y,
+            style=fallback_style,
+            skip_whitespace=skip_whitespace,
+        )
 
 
 def load_sprite_sheet(
