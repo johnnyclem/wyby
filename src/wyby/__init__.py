@@ -216,6 +216,14 @@ from wyby.api_reference import (
     generate_api_reference,
     modules_by_category,
 )
+from wyby.input_permissions import (
+    INPUT_PERMISSION_ENTRIES,
+    PERMISSION_CATEGORIES,
+    InputPermissionEntry,
+    format_input_permissions_doc,
+    format_input_permissions_for_category,
+    get_entries_by_category,
+)
 
 # Attach a NullHandler so that wyby's internal log messages are silently
 # discarded unless the application (game) configures logging. This follows
@@ -411,4 +419,10 @@ __all__ = [
     "format_api_reference",
     "generate_api_reference",
     "modules_by_category",
+    "INPUT_PERMISSION_ENTRIES",
+    "PERMISSION_CATEGORIES",
+    "InputPermissionEntry",
+    "format_input_permissions_doc",
+    "format_input_permissions_for_category",
+    "get_entries_by_category",
 ]
