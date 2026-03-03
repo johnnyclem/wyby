@@ -87,6 +87,7 @@ from wyby.render_warnings import (
 from wyby.renderer import LiveDisplay, Renderer, create_console
 from wyby.resize import ResizeHandler, get_terminal_size
 from wyby.scene import Scene, SceneStack
+from wyby.signal_handlers import SignalHandler
 from wyby.terminal_test import (
     TERMINAL_CAVEATS,
     TestCard,
@@ -164,6 +165,7 @@ __all__ = [
     "PlatformDifference",
     "PlatformInfo",
     "show_cursor",
+    "SignalHandler",
     "string_width",
     "TERMINAL_CAVEATS",
     "TestCard",

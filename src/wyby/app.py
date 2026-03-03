@@ -13,13 +13,20 @@ sleeps the remainder; when it falls behind it runs multiple updates per
 frame (up to a frame-skip limit) to catch up.
 
 Quit handling:
-    The engine recognises three ways to request shutdown:
+    The engine recognises four ways to request shutdown:
 
     1. **KeyboardInterrupt** (Ctrl+C) — caught by the engine and
-       treated as a clean stop.
-    2. **Engine.stop()** — called programmatically (e.g., from another
+       treated as a clean stop.  In raw mode, Ctrl+C delivers byte
+       ``0x03`` to stdin (not SIGINT); the input parser raises
+       ``KeyboardInterrupt``.  External SIGINT (``kill -2``) is caught
+       by the :class:`~wyby.signal_handlers.SignalHandler`.
+    2. **SIGTERM** (``kill <pid>``) — the signal handler converts this
+       into ``KeyboardInterrupt`` for uniform graceful shutdown.
+       Without the handler, SIGTERM would terminate the process
+       immediately, leaving the terminal in raw mode.
+    3. **Engine.stop()** — called programmatically (e.g., from another
        thread or a timer callback).
-    3. **QuitSignal** — a dedicated exception that game code (typically
+    4. **QuitSignal** — a dedicated exception that game code (typically
        a :class:`Scene` subclass) can raise from ``update()`` to
        request an immediate, clean shutdown.  This is the recommended
        way for scenes to quit the game without needing a reference to
@@ -106,6 +113,7 @@ from wyby.event import EventQueue
 from wyby.input import InputManager
 from wyby.renderer import LiveDisplay, create_console
 from wyby.scene import SceneStack
+from wyby.signal_handlers import SignalHandler
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -346,6 +354,7 @@ class Engine:
         "_console",
         "_live_display",
         "_input_manager",
+        "_signal_handler",
     )
 
     def __init__(
@@ -466,6 +475,7 @@ class Engine:
                 f"got {type(input_manager).__name__}"
             )
         self._input_manager = input_manager
+        self._signal_handler = SignalHandler()
 
         _logger.debug(
             "Engine initialized: title=%r, width=%d, height=%d, "
@@ -745,15 +755,33 @@ class Engine:
         # more than nanosecond precision, monotonic is the safer choice.
         self._last_tick_time = time.monotonic()
 
-        # Start the InputManager if one was provided.  start() is
-        # idempotent, so this is safe even if the manager was already
-        # started externally.
-        if self._input_manager is not None:
-            self._input_manager.start()
-
         _logger.debug("Engine.run() starting (loop=%s)", loop)
 
+        # Install process-level signal handlers for SIGINT/SIGTERM.
+        # These convert OS signals into KeyboardInterrupt so the engine's
+        # normal shutdown path runs.  Uses signal.signal() — process-level
+        # only, no system-wide hooks, no elevated privileges.
+        #
+        # Caveat: signal.signal() can only be called from the main thread.
+        # Engine.run() is always called from the main thread in normal
+        # usage.  If called from a background thread (unusual), the
+        # signal handler installation is skipped and a warning is logged.
         try:
+            self._signal_handler.install()
+        except ValueError:
+            _logger.warning(
+                "Cannot install signal handlers from a non-main thread. "
+                "SIGTERM will not trigger graceful shutdown."
+            )
+
+        try:
+            # Start the InputManager if one was provided.  start() is
+            # idempotent, so this is safe even if the manager was already
+            # started externally.  Placed inside the try block so that
+            # _shutdown() runs even if start() is interrupted.
+            if self._input_manager is not None:
+                self._input_manager.start()
+
             if not loop:
                 # Single-tick mode: run one fixed-step update and return.
                 # No accumulator or sleep — this is for testing/debugging.
@@ -766,6 +794,7 @@ class Engine:
             _logger.debug("QuitSignal received, stopping engine")
         finally:
             self._shutdown()
+            self._signal_handler.uninstall()
             self._running = False
             _logger.debug("Engine.run() finished")
 
@@ -861,6 +890,12 @@ class Engine:
         or a registered exit callback raises, the exception is logged
         and remaining scenes still receive their hooks.
 
+        If the user presses Ctrl+C during shutdown (second interrupt),
+        the ``KeyboardInterrupt`` is caught and cleanup continues on a
+        best-effort basis.  Terminal restoration (InputManager stop and
+        Live display stop) always runs, even if scene teardown is
+        interrupted.
+
         Caveats:
             - Accesses ``_scene_stack._stack`` directly rather than
               using :meth:`SceneStack.pop` because ``pop()`` calls
@@ -873,50 +908,71 @@ class Engine:
             - Safe to call multiple times (idempotent).  A second call
               after a clean shutdown is a no-op since the stack and
               queue are already empty.
+            - A second Ctrl+C during scene teardown skips remaining
+              exit hooks but still restores the terminal.  This is a
+              deliberate trade-off: the user's ability to regain a
+              working terminal is more important than running every
+              exit hook.
         """
         _logger.debug("Engine shutdown: cleaning up")
 
-        # Tear down scenes top-to-bottom.  We bypass SceneStack.pop()
-        # and SceneStack.clear() for two reasons:
-        # 1. pop() calls on_resume() on the new top, which is
-        #    pointless during shutdown and could raise.
-        # 2. clear() would propagate the first exception from
-        #    _fire_exit(), leaving remaining scenes uncleaned.
-        stack = self._scene_stack._stack
-        while stack:
-            scene = stack.pop()
-            try:
-                scene._fire_exit()
-            except Exception:
-                # Log and continue — one buggy exit hook must not
-                # prevent other scenes from cleaning up.
-                _logger.warning(
-                    "Exception in exit hook for %r during shutdown "
-                    "(remaining scenes will still be cleaned up)",
-                    type(scene).__name__,
-                    exc_info=True,
-                )
+        # Tear down scenes top-to-bottom.  Wrapped in try/except
+        # KeyboardInterrupt so that a second Ctrl+C during shutdown
+        # skips remaining exit hooks but still restores the terminal.
+        try:
+            stack = self._scene_stack._stack
+            while stack:
+                scene = stack.pop()
+                try:
+                    scene._fire_exit()
+                except Exception:
+                    # Log and continue — one buggy exit hook must not
+                    # prevent other scenes from cleaning up.
+                    _logger.warning(
+                        "Exception in exit hook for %r during shutdown "
+                        "(remaining scenes will still be cleaned up)",
+                        type(scene).__name__,
+                        exc_info=True,
+                    )
+        except KeyboardInterrupt:
+            # Second Ctrl+C during scene teardown.  Clear the remaining
+            # stack without firing hooks — terminal restoration below
+            # is more important than exit hooks.
+            _logger.warning(
+                "Interrupted during shutdown — skipping remaining "
+                "exit hooks to restore terminal"
+            )
+            self._scene_stack._stack.clear()
 
         self._event_queue.clear()
 
-        # Stop the InputManager if one was provided.  This restores
-        # the terminal to cooked mode (echo, line editing).  stop()
-        # is idempotent — safe even if the manager was never started
-        # or was already stopped.
+        # Terminal restoration block.  InputManager.stop() and
+        # LiveDisplay.stop() are the most critical cleanup operations
+        # because they restore the terminal to a usable state (cooked
+        # mode, cursor visible).  Each is wrapped in its own
+        # try/except so that a failure in one does not prevent the
+        # other from running.
         #
-        # Caveat: if stop() raises (e.g., due to a bug in the
-        # platform backend), the Live display may not be stopped.
-        # This is acceptable — the Live display stop is best-effort
-        # cleanup, and an InputManager stop failure is a more serious
-        # issue that should propagate.
+        # Caveat: if both stop() calls fail AND the terminal is in
+        # raw mode, the user will need to run ``reset`` or
+        # ``stty sane`` manually.  This is an edge case that requires
+        # two independent failures.
         if self._input_manager is not None:
-            self._input_manager.stop()
+            try:
+                self._input_manager.stop()
+            except Exception:
+                _logger.warning(
+                    "Failed to stop InputManager during shutdown",
+                    exc_info=True,
+                )
 
-        # Stop the Live display if it was started (by game code or a
-        # Renderer).  This restores cursor visibility and cleans up
-        # Rich's terminal state.  Idempotent — safe even if the
-        # display was never started.
-        self._live_display.stop()
+        try:
+            self._live_display.stop()
+        except Exception:
+            _logger.warning(
+                "Failed to stop LiveDisplay during shutdown",
+                exc_info=True,
+            )
 
         _logger.debug("Engine shutdown complete")
 
