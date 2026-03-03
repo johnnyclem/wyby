@@ -12,6 +12,24 @@ slow the host machine renders frames.  When the loop finishes early it
 sleeps the remainder; when it falls behind it runs multiple updates per
 frame (up to a frame-skip limit) to catch up.
 
+Quit handling:
+    The engine recognises three ways to request shutdown:
+
+    1. **KeyboardInterrupt** (Ctrl+C) — caught by the engine and
+       treated as a clean stop.
+    2. **Engine.stop()** — called programmatically (e.g., from another
+       thread or a timer callback).
+    3. **QuitSignal** — a dedicated exception that game code (typically
+       a :class:`Scene` subclass) can raise from ``update()`` to
+       request an immediate, clean shutdown.  This is the recommended
+       way for scenes to quit the game without needing a reference to
+       the engine.
+
+    Once the input layer is implemented, the engine will raise
+    ``QuitSignal`` automatically when configurable quit keys (e.g.,
+    Escape, ``q``) are pressed.  Until then, games should raise
+    ``QuitSignal`` from their own input-checking logic.
+
 Caveats:
     - **Early implementation.** Scene management, input, and rendering
       are not yet connected. See SCOPE.md for the intended design.
@@ -98,6 +116,39 @@ _MAX_FRAME_SKIP = 5
 # granularity is typically 1–10 ms; sleeping for less than 1 ms is
 # unreliable and may actually sleep longer than intended.
 _SLEEP_THRESHOLD = 0.001
+
+
+class QuitSignal(Exception):
+    """Raised by game code to request a clean engine shutdown.
+
+    Scenes (or any code running inside the engine's tick) can raise
+    this exception to stop the game loop cleanly.  The engine catches
+    ``QuitSignal`` the same way it catches ``KeyboardInterrupt`` —
+    it sets ``running`` to ``False`` and exits ``run()`` without
+    re-raising.
+
+    Example usage in a scene::
+
+        class GameplayScene(Scene):
+            def update(self, dt: float) -> None:
+                if self.player_pressed_quit:
+                    raise QuitSignal("player quit")
+
+    Caveats:
+        - ``QuitSignal`` is **not** a ``BaseException`` subclass
+          (it inherits from ``Exception``).  Bare ``except:`` blocks
+          will catch it, so avoid bare excepts in game code running
+          inside the engine tick.  Use ``except Exception`` if you
+          must catch broadly, and re-raise ``QuitSignal`` explicitly.
+        - The engine does not distinguish between ``QuitSignal`` and
+          ``KeyboardInterrupt`` for shutdown behaviour — both result
+          in a clean stop.  Future versions may expose the quit reason
+          via a callback or property.
+        - Once the input layer is implemented, the engine will raise
+          ``QuitSignal`` when configurable quit keys (e.g., Escape,
+          ``q``) are detected.  Until then, games must raise it
+          manually from their input-handling logic.
+    """
 
 
 class Engine:
@@ -306,7 +357,8 @@ class Engine:
 
         When *loop* is ``True`` (the default), the engine runs a
         **fixed-timestep** loop using the accumulator pattern until
-        stopped via :meth:`stop` or a ``KeyboardInterrupt`` (Ctrl+C).
+        stopped via :meth:`stop`, a ``KeyboardInterrupt`` (Ctrl+C),
+        or a :class:`QuitSignal` raised by game code.
         Wall-clock time is accumulated and drained in fixed increments
         of :attr:`target_dt`.  When a frame finishes early the loop
         sleeps the remainder; when it falls behind it runs multiple
@@ -330,9 +382,10 @@ class Engine:
               lid, debugger, ``SIGSTOP``), the first frame after wake
               sees a large wall-clock gap.  ``frame_time`` is clamped
               to ``_DT_CLAMP`` to prevent a burst of catch-up ticks.
-            - ``KeyboardInterrupt`` is caught and treated as a clean
-              shutdown. Terminal-state cleanup (e.g. restoring cursor
-              visibility) will be added when the renderer is implemented.
+            - ``KeyboardInterrupt`` and ``QuitSignal`` are both caught
+              and treated as a clean shutdown. Terminal-state cleanup
+              (e.g. restoring cursor visibility) will be added when
+              the renderer is implemented.
             - Calling ``run()`` while the engine is already running has
               no effect; the call returns immediately.
         """
@@ -363,6 +416,8 @@ class Engine:
                 self._run_loop()
         except KeyboardInterrupt:
             _logger.debug("KeyboardInterrupt received, stopping engine")
+        except QuitSignal:
+            _logger.debug("QuitSignal received, stopping engine")
         finally:
             self._running = False
             _logger.debug("Engine.run() finished")
