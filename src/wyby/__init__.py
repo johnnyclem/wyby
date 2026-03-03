@@ -41,6 +41,7 @@ from wyby.color import (
     nearest_ansi256,
     parse_color,
 )
+from wyby.animation import Animation, AnimationFrame
 from wyby.component import Component
 from wyby.dithering import (
     CELL_ASPECT_RATIO,
@@ -116,6 +117,8 @@ from wyby.terminal_test import (
 setup_null_handler()
 
 __all__ = [
+    "Animation",
+    "AnimationFrame",
     "AltScreen",
     "HiddenCursor",
     "CELL_ASPECT_RATIO",
