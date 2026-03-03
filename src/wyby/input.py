@@ -64,9 +64,9 @@ Caveats:
       every application.  wyby reads only from its own stdin and never
       requires elevated privileges.  See the "Library choice" section
       above and ``_platform.py`` for full rationale.
-    - Mouse support is not included in v0.1.  Some terminals support
-      mouse reporting via escape sequences, but coverage is
-      inconsistent.
+    - Mouse support uses SGR extended mode (mode 1006) for reporting.
+      Not all terminals support mouse reporting — coverage varies.
+      See :class:`MouseEvent` for terminal compatibility caveats.
     - Terminal cooked-mode must be restored on exit.  The
       :class:`InputManager` handles this via :meth:`stop` and signal
       handlers, but ``SIGKILL`` cannot be caught.
@@ -83,6 +83,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import sys
 from typing import TYPE_CHECKING
 
 from wyby.event import Event
@@ -175,21 +176,130 @@ class KeyEvent(Event):
         return f"KeyEvent(key={self.key!r})"
 
 
-def parse_key_events(data: bytes) -> list[KeyEvent]:
-    """Parse raw stdin bytes into a list of :class:`KeyEvent` objects.
+@dataclasses.dataclass(frozen=True, slots=True)
+class MouseEvent(Event):
+    """A mouse input event.
+
+    Represents a mouse action (press, release, scroll, move) parsed from
+    SGR extended mouse escape sequences (xterm mode 1006).
+
+    Attributes:
+        x: Column position (0-based, left edge is 0).
+        y: Row position (0-based, top edge is 0).
+        button: Which button was involved.  One of ``"left"``,
+            ``"middle"``, ``"right"``, ``"scroll_up"``,
+            ``"scroll_down"``, or ``"none"`` (for motion-only events).
+        action: What happened.  One of ``"press"``, ``"release"``,
+            ``"scroll"``, or ``"move"``.
+
+    Caveats:
+        - **Terminal support varies widely.**  SGR mouse mode (mode 1006)
+          is supported by xterm, iTerm2, Windows Terminal, GNOME Terminal,
+          Alacritty, kitty, and most modern terminals.  Older terminals
+          (e.g., rxvt, older PuTTY versions, the Linux virtual console)
+          may not support it at all or may only support the legacy X10
+          protocol (which cannot report coordinates above 223).
+        - **macOS Terminal.app** has limited mouse support.  It reports
+          basic clicks but may not report releases or scrolls reliably.
+        - **tmux/screen** may intercept mouse events unless mouse mode
+          is explicitly enabled in the multiplexer config (``set -g
+          mouse on`` in tmux).
+        - **SSH sessions** pass mouse events through if the local
+          terminal supports them and the remote terminal is in mouse
+          mode, but latency may cause split escape sequences.
+        - **Coordinates are 0-based** in this API, converted from the
+          1-based values in the SGR protocol.  The top-left cell is
+          ``(0, 0)``.
+        - **Motion tracking** (mode 1003) is not enabled by default
+          because it generates a high volume of events that can flood
+          the event queue and degrade performance.  Use
+          ``InputManager(mouse=True, mouse_motion=True)`` to opt in.
+        - **Drag events** are reported as ``action="move"`` with a
+          non-``"none"`` button.
+        - **Middle-click paste** may not work while mouse mode is
+          enabled, since the terminal captures the click instead of
+          pasting.  Some terminals offer Shift+middle-click as a
+          workaround.
+    """
+
+    x: int
+    y: int
+    button: str
+    action: str
+
+    def __repr__(self) -> str:
+        return (
+            f"MouseEvent(x={self.x}, y={self.y}, "
+            f"button={self.button!r}, action={self.action!r})"
+        )
+
+
+# SGR mouse button decoding.
+# The low 2 bits encode the button (with modifiers in higher bits).
+# Bit 5 (value 32) indicates motion.
+# Bits 6-7 (value 64) indicate scroll.
+_MOUSE_BUTTON_MAP: dict[int, str] = {
+    0: "left",
+    1: "middle",
+    2: "right",
+}
+
+
+def _parse_sgr_mouse(params: str, final: str) -> MouseEvent | None:
+    """Parse an SGR mouse sequence ``ESC[<button;x;y{M|m}``.
+
+    Args:
+        params: The parameter string after ``<`` (e.g., ``"0;15;3"``).
+        final: The final character — ``"M"`` for press, ``"m"`` for release.
+
+    Returns:
+        A :class:`MouseEvent` or ``None`` if the sequence is malformed.
+    """
+    parts = params.split(";")
+    if len(parts) != 3:
+        return None
+    try:
+        button_code = int(parts[0])
+        # SGR coordinates are 1-based; convert to 0-based.
+        x = int(parts[1]) - 1
+        y = int(parts[2]) - 1
+    except (ValueError, IndexError):
+        return None
+
+    is_release = final == "m"
+    is_motion = bool(button_code & 32)
+    is_scroll = bool(button_code & 64)
+    base_button = button_code & 3
+
+    if is_scroll:
+        button = "scroll_up" if base_button == 0 else "scroll_down"
+        return MouseEvent(x=x, y=y, button=button, action="scroll")
+
+    if is_motion:
+        button = _MOUSE_BUTTON_MAP.get(base_button, "none")
+        return MouseEvent(x=x, y=y, button=button, action="move")
+
+    button = _MOUSE_BUTTON_MAP.get(base_button, "none")
+    action = "release" if is_release else "press"
+    return MouseEvent(x=x, y=y, button=button, action=action)
+
+
+def parse_input_events(data: bytes) -> list[Event]:
+    """Parse raw stdin bytes into a list of input events.
 
     This is the core ANSI escape sequence parser.  It consumes raw
-    bytes read from stdin in raw mode and produces normalised key
-    events.
+    bytes read from stdin in raw mode and produces normalised
+    :class:`KeyEvent` and :class:`MouseEvent` objects.
 
     Args:
         data: Raw bytes from stdin.  May contain a mix of single-byte
-            characters, multi-byte UTF-8 sequences, and ANSI escape
-            sequences.
+            characters, multi-byte UTF-8 sequences, ANSI escape
+            sequences, and SGR mouse sequences.
 
     Returns:
-        A list of :class:`KeyEvent` objects, one per detected key
-        press.  May be empty if *data* is empty.
+        A list of :class:`Event` objects (either :class:`KeyEvent` or
+        :class:`MouseEvent`), one per detected input.  May be empty
+        if *data* is empty.
 
     Caveats:
         - The parser is stateless — it processes each *data* buffer
@@ -205,8 +315,11 @@ def parse_key_events(data: bytes) -> list[KeyEvent]:
         - Ctrl+C (byte 0x03) raises ``KeyboardInterrupt`` rather than
           producing a ``KeyEvent``.  This preserves the standard
           terminal behaviour of Ctrl+C as an interrupt signal.
+        - Mouse events are only produced when the terminal is in SGR
+          mouse mode (mode 1006).  Enable mouse mode via
+          ``InputManager(mouse=True)``.
     """
-    events: list[KeyEvent] = []
+    events: list[Event] = []
     i = 0
     n = len(data)
 
@@ -300,7 +413,25 @@ def parse_key_events(data: bytes) -> list[KeyEvent]:
     return events
 
 
-def _parse_csi(data: bytes, start: int) -> tuple[KeyEvent | None, int]:
+def parse_key_events(data: bytes) -> list[KeyEvent]:
+    """Parse raw stdin bytes into a list of :class:`KeyEvent` objects.
+
+    This is a convenience wrapper around :func:`parse_input_events`
+    that filters out non-keyboard events.  Retained for backward
+    compatibility — new code should use :func:`parse_input_events`
+    if mouse events are needed.
+
+    Args:
+        data: Raw bytes from stdin.
+
+    Returns:
+        A list of :class:`KeyEvent` objects only (mouse events are
+        discarded).
+    """
+    return [e for e in parse_input_events(data) if isinstance(e, KeyEvent)]
+
+
+def _parse_csi(data: bytes, start: int) -> tuple[Event | None, int]:
     """Parse a CSI escape sequence starting after ``\\x1b[``.
 
     Args:
@@ -308,13 +439,29 @@ def _parse_csi(data: bytes, start: int) -> tuple[KeyEvent | None, int]:
         start: Index of the first byte after ``[``.
 
     Returns:
-        A tuple of (KeyEvent or None, bytes consumed after ``[``).
+        A tuple of (Event or None, bytes consumed after ``[``).
         Returns ``(None, consumed)`` for unrecognised sequences.
     """
     n = len(data)
     if start >= n:
         # Incomplete sequence — just an \x1b[ at end of buffer.
         return None, 0
+
+    # --- SGR mouse: \x1b[< button;x;y M/m ---
+    # The '<' character introduces SGR extended mouse sequences.
+    if data[start] == ord("<"):
+        # Collect everything after '<' until 'M' or 'm'.
+        i = start + 1
+        while i < n and chr(data[i]) not in ("M", "m"):
+            i += 1
+        if i >= n:
+            # Incomplete mouse sequence.
+            return None, i - start
+        final = chr(data[i])
+        params = data[start + 1 : i].decode("ascii", errors="replace")
+        consumed = i - start + 1
+        mouse_event = _parse_sgr_mouse(params, final)
+        return mouse_event, consumed
 
     # Collect parameter bytes (digits and semicolons).
     param_start = start
@@ -347,12 +494,65 @@ def _parse_csi(data: bytes, start: int) -> tuple[KeyEvent | None, int]:
     return None, consumed
 
 
+# --- Mouse mode enable/disable ---
+# These write ANSI escape sequences directly to stdout to control
+# mouse reporting.  They must be called while the terminal is in raw
+# mode (after enter_raw_mode).
+#
+# Mode 1000: Basic mouse tracking (press/release).
+# Mode 1003: All-motion tracking (reports movement even without buttons).
+# Mode 1006: SGR extended coordinates (supports terminals wider than
+#            223 columns; uses decimal coordinates instead of byte encoding).
+#
+# Caveats:
+#   - These sequences are written to stdout, not stdin.  If stdout is
+#     redirected (e.g., piped to a file), they have no effect.
+#   - Not all terminals support all modes.  Mode 1006 (SGR) is the most
+#     widely supported modern protocol; mode 1003 (any-event) may not
+#     be supported by older terminals.
+#   - The sequences must be disabled on exit, otherwise the terminal
+#     will continue sending mouse escape sequences after the program
+#     ends, corrupting the user's shell.  The InputManager handles
+#     this in stop(), but SIGKILL cannot be caught.
+#   - The order matters: enable SGR mode (1006) *after* basic mode
+#     (1000) to ensure the terminal uses SGR encoding; disable in
+#     reverse order.
+
+# ANSI escape sequences for mouse mode control.
+_MOUSE_ENABLE_BASIC = "\x1b[?1000h"
+_MOUSE_DISABLE_BASIC = "\x1b[?1000l"
+_MOUSE_ENABLE_SGR = "\x1b[?1006h"
+_MOUSE_DISABLE_SGR = "\x1b[?1006l"
+_MOUSE_ENABLE_ALL_MOTION = "\x1b[?1003h"
+_MOUSE_DISABLE_ALL_MOTION = "\x1b[?1003l"
+
+
+def _enable_mouse_mode(motion: bool = False) -> None:
+    """Enable SGR mouse reporting on stdout."""
+    sys.stdout.write(_MOUSE_ENABLE_BASIC)
+    if motion:
+        sys.stdout.write(_MOUSE_ENABLE_ALL_MOTION)
+    sys.stdout.write(_MOUSE_ENABLE_SGR)
+    sys.stdout.flush()
+    _logger.debug("Mouse mode enabled (motion=%s)", motion)
+
+
+def _disable_mouse_mode(motion: bool = False) -> None:
+    """Disable SGR mouse reporting on stdout."""
+    sys.stdout.write(_MOUSE_DISABLE_SGR)
+    if motion:
+        sys.stdout.write(_MOUSE_DISABLE_ALL_MOTION)
+    sys.stdout.write(_MOUSE_DISABLE_BASIC)
+    sys.stdout.flush()
+    _logger.debug("Mouse mode disabled")
+
+
 class InputManager:
-    """High-level keyboard input manager for the game loop.
+    """High-level input manager for the game loop.
 
     Wraps a platform-specific :class:`~wyby._platform.InputBackend`
     and provides a simple :meth:`poll` interface that returns parsed
-    :class:`KeyEvent` objects.
+    :class:`KeyEvent` and :class:`MouseEvent` objects.
 
     The typical lifecycle is::
 
@@ -371,6 +571,14 @@ class InputManager:
         with InputManager() as manager:
             events = manager.poll()
 
+    For mouse support::
+
+        with InputManager(mouse=True) as manager:
+            events = manager.poll()
+            for event in events:
+                if isinstance(event, MouseEvent):
+                    handle_click(event.x, event.y, event.button)
+
     For non-TTY environments (piped input, CI, containers), set
     ``allow_fallback=True`` to fall back to ``input()`` when raw
     mode is unavailable::
@@ -386,6 +594,12 @@ class InputManager:
         allow_fallback: If ``True``, fall back to Python's ``input()``
             when raw mode is unavailable (stdin is not a TTY).  If
             ``False`` (default), a ``RuntimeError`` is raised instead.
+        mouse: If ``True``, enable mouse event reporting using SGR
+            extended mode (xterm mode 1006).  Defaults to ``False``.
+        mouse_motion: If ``True`` (and ``mouse`` is also ``True``),
+            enable motion tracking (mode 1003) which reports mouse
+            movement even without a button held.  Generates high event
+            volume — use sparingly.  Defaults to ``False``.
 
     Caveats:
         - You **must** call :meth:`stop` (or use the context manager)
@@ -404,14 +618,21 @@ class InputManager:
           :meth:`read_line` for blocking line-based input instead.
           Arrow keys and Ctrl+key combos are not available in fallback
           mode — only printable characters and Enter.
+        - When mouse mode is enabled, middle-click paste may not work
+          in some terminals (the terminal captures the click).  Some
+          terminals allow Shift+middle-click as a workaround.
+        - Mouse mode is silently ignored in fallback mode (non-TTY)
+          since there is no terminal to receive mouse escape sequences.
     """
 
-    __slots__ = ("_backend", "_started", "_fallback")
+    __slots__ = ("_backend", "_started", "_fallback", "_mouse", "_mouse_motion")
 
     def __init__(
         self,
         backend: InputBackend | None = None,
         allow_fallback: bool = False,
+        mouse: bool = False,
+        mouse_motion: bool = False,
     ) -> None:
         if backend is None:
             from wyby._platform import create_backend
@@ -420,6 +641,8 @@ class InputManager:
         self._backend = backend
         self._started = False
         self._fallback = allow_fallback
+        self._mouse = mouse
+        self._mouse_motion = mouse_motion
 
     @property
     def is_started(self) -> bool:
@@ -445,6 +668,9 @@ class InputManager:
         switches to :class:`~wyby._platform.FallbackInputBackend`
         instead of raising.
 
+        If ``mouse`` was set, enables SGR mouse reporting after
+        entering raw mode.
+
         Raises:
             RuntimeError: If stdin is not a TTY and ``allow_fallback``
                 is ``False``.
@@ -466,15 +692,20 @@ class InputManager:
                 "use read_line() for blocking input."
             )
         self._started = True
-        _logger.debug("InputManager started")
+        if self._mouse and not self.is_fallback:
+            _enable_mouse_mode(self._mouse_motion)
+        _logger.debug("InputManager started (mouse=%s)", self._mouse)
 
     def stop(self) -> None:
         """Exit raw mode and restore terminal settings.
 
         Safe to call multiple times; subsequent calls are no-ops.
+        Disables mouse reporting before restoring cooked mode.
         """
         if not self._started:
             return
+        if self._mouse and not self.is_fallback:
+            _disable_mouse_mode(self._mouse_motion)
         self._backend.exit_raw_mode()
         self._started = False
         _logger.debug("InputManager stopped")
@@ -526,12 +757,13 @@ class InputManager:
             )
         return self._backend.has_input()
 
-    def poll(self) -> list[KeyEvent]:
-        """Read and parse all available key presses (non-blocking).
+    def poll(self) -> list[Event]:
+        """Read and parse all available input events (non-blocking).
 
-        Returns a list of :class:`KeyEvent` objects for all keys
-        pressed since the last call to :meth:`poll`.  Returns an empty
-        list if no keys are available.
+        Returns a list of :class:`Event` objects (either
+        :class:`KeyEvent` or :class:`MouseEvent`) for all input
+        since the last call to :meth:`poll`.  Returns an empty list
+        if no input is available.
 
         Raises:
             KeyboardInterrupt: If Ctrl+C was pressed.
@@ -547,6 +779,8 @@ class InputManager:
               atomically.
             - In fallback mode, this always returns ``[]``.  Use
               :meth:`read_line` instead for blocking input.
+            - Mouse events are only returned when mouse mode is
+              enabled (``mouse=True`` at construction).
         """
         if not self._started:
             raise RuntimeError(
@@ -556,7 +790,7 @@ class InputManager:
         raw = self._backend.read_bytes()
         if not raw:
             return []
-        return parse_key_events(raw)
+        return parse_input_events(raw)
 
     def read_line(self, prompt: str = "") -> list[KeyEvent]:
         """Read a line of input using Python's ``input()`` (blocking).

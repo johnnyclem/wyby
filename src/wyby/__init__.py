@@ -48,7 +48,7 @@ from wyby.diagnostics import (
     detect_capabilities,
 )
 from wyby.event import Event, EventQueue
-from wyby.input import InputManager, KeyEvent, parse_key_events
+from wyby.input import InputManager, KeyEvent, MouseEvent, parse_input_events, parse_key_events
 from wyby.grid import Cell, CellBuffer, DoubleBuffer, clip_to_terminal
 from wyby.unicode import (
     char_width,
@@ -97,6 +97,7 @@ __all__ = [
     "EventQueue",
     "InputManager",
     "KeyEvent",
+    "MouseEvent",
     "FPSCounter",
     "Layer",
     "LayerStack",
@@ -133,6 +134,7 @@ __all__ = [
     "log_render_cost",
     "nearest_ansi16",
     "nearest_ansi256",
+    "parse_input_events",
     "parse_key_events",
     "parse_color",
     "show_cursor",
