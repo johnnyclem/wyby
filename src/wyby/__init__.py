@@ -154,6 +154,12 @@ from wyby.terminal_test import (
     build_test_card,
     format_report,
 )
+from wyby.example_line_counts import (
+    LineCounts,
+    count_example_lines,
+    count_lines,
+    format_line_counts,
+)
 
 # Attach a NullHandler so that wyby's internal log messages are silently
 # discarded unless the application (game) configures logging. This follows
@@ -301,4 +307,8 @@ __all__ = [
     "update_particles",
     "update_velocities",
     "TileMap",
+    "LineCounts",
+    "count_example_lines",
+    "count_lines",
+    "format_line_counts",
 ]
