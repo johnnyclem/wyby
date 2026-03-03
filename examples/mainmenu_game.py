@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from wyby.app import Engine, QuitSignal
 from wyby.grid import CellBuffer
-from wyby.input import KeyEvent
+from wyby.input import InputManager, KeyEvent
 from wyby.scene import Scene
 
 
@@ -283,7 +283,11 @@ class GameScene(Scene):
 
         # Draw player.
         self.buffer.put_text(
-            self.player_x, self.player_y, self.PLAYER_CHAR, fg="bright_yellow", bold=True
+            self.player_x,
+            self.player_y,
+            self.PLAYER_CHAR,
+            fg="bright_yellow",
+            bold=True,
         )
 
         # HUD line above the border.
@@ -311,7 +315,10 @@ def main() -> None:
           wrap the run loop in ``with AltScreen():`` to restore the
           terminal buffer on exit.
     """
-    engine = Engine(title="wyby example", width=40, height=15, tps=30)
+    input_manager = InputManager()
+    engine = Engine(
+        title="wyby example", width=40, height=15, tps=30, input_manager=input_manager
+    )
 
     def start_game() -> None:
         """Push GameScene onto the stack."""

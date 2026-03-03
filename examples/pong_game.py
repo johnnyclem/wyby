@@ -54,7 +54,7 @@ import random
 
 from wyby.app import Engine, QuitSignal
 from wyby.grid import CellBuffer
-from wyby.input import KeyEvent
+from wyby.input import InputManager, KeyEvent
 from wyby.scene import Scene
 
 
@@ -304,22 +304,16 @@ class PongScene(Scene):
         # -- Border --
         self.buffer.put_text(0, 0, self.CORNER_TL, fg="bright_black")
         self.buffer.put_text(self._width - 1, 0, self.CORNER_TR, fg="bright_black")
-        self.buffer.put_text(
-            0, self._height - 1, self.CORNER_BL, fg="bright_black"
-        )
+        self.buffer.put_text(0, self._height - 1, self.CORNER_BL, fg="bright_black")
         self.buffer.put_text(
             self._width - 1, self._height - 1, self.CORNER_BR, fg="bright_black"
         )
         for x in range(1, self._width - 1):
             self.buffer.put_text(x, 0, self.BORDER_H, fg="bright_black")
-            self.buffer.put_text(
-                x, self._height - 1, self.BORDER_H, fg="bright_black"
-            )
+            self.buffer.put_text(x, self._height - 1, self.BORDER_H, fg="bright_black")
         for y in range(1, self._height - 1):
             self.buffer.put_text(0, y, self.BORDER_V, fg="bright_black")
-            self.buffer.put_text(
-                self._width - 1, y, self.BORDER_V, fg="bright_black"
-            )
+            self.buffer.put_text(self._width - 1, y, self.BORDER_V, fg="bright_black")
 
         # -- Centre net --
         net_x = self._width // 2
@@ -362,9 +356,7 @@ class PongScene(Scene):
 
             restart_hint = "R: restart  Q: quit"
             hint_x = max(0, (self._width - len(restart_hint)) // 2)
-            self.buffer.put_text(
-                hint_x, msg_y + 1, restart_hint, fg="bright_white"
-            )
+            self.buffer.put_text(hint_x, msg_y + 1, restart_hint, fg="bright_white")
 
 
 def main() -> None:
@@ -382,7 +374,10 @@ def main() -> None:
           wrap the run loop in ``with AltScreen():`` to restore the
           terminal buffer on exit.
     """
-    engine = Engine(title="pong", width=60, height=24, tps=30)
+    input_manager = InputManager()
+    engine = Engine(
+        title="pong", width=60, height=24, tps=30, input_manager=input_manager
+    )
     scene = PongScene(width=60, height=24)
     engine.push_scene(scene)
 

@@ -48,7 +48,7 @@ import random
 
 from wyby.app import Engine, QuitSignal
 from wyby.grid import CellBuffer
-from wyby.input import KeyEvent
+from wyby.input import InputManager, KeyEvent
 from wyby.scene import Scene
 
 
@@ -332,9 +332,7 @@ class SnakeGameScene(Scene):
 
             restart_hint = "R: restart  Q: quit"
             hint_x = max(0, (self._width - len(restart_hint)) // 2)
-            self.buffer.put_text(
-                hint_x, msg_y + 1, restart_hint, fg="bright_white"
-            )
+            self.buffer.put_text(hint_x, msg_y + 1, restart_hint, fg="bright_white")
 
 
 def main() -> None:
@@ -352,7 +350,10 @@ def main() -> None:
           wrap the run loop in ``with AltScreen():`` to restore the
           terminal buffer on exit.
     """
-    engine = Engine(title="snake", width=30, height=20, tps=30)
+    input_manager = InputManager()
+    engine = Engine(
+        title="snake", width=30, height=20, tps=30, input_manager=input_manager
+    )
     scene = SnakeGameScene(width=30, height=20)
     engine.push_scene(scene)
 

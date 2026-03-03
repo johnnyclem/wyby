@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from wyby.app import Engine, QuitSignal
 from wyby.grid import CellBuffer
-from wyby.input import KeyEvent
+from wyby.input import InputManager, KeyEvent
 from wyby.scene import Scene
 
 
@@ -141,7 +141,10 @@ def main() -> None:
           wrap the run loop in ``with AltScreen():`` to restore the
           terminal buffer on exit.
     """
-    engine = Engine(title="hello world", width=40, height=12, tps=30)
+    input_manager = InputManager()
+    engine = Engine(
+        title="hello world", width=40, height=12, tps=30, input_manager=input_manager
+    )
     scene = HelloWorldScene(width=40, height=12)
     engine.push_scene(scene)
 

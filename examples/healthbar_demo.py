@@ -38,7 +38,7 @@ from __future__ import annotations
 from wyby.app import Engine, QuitSignal
 from wyby.grid import CellBuffer
 from wyby.healthbar import HealthBar
-from wyby.input import KeyEvent
+from wyby.input import InputManager, KeyEvent
 from wyby.scene import Scene
 
 
@@ -90,14 +90,22 @@ class HealthBarDemoScene(Scene):
         # Caveat: bar_width=20 gives 5% granularity per cell.
         # For finer resolution, increase bar_width.
         self.hp_bar = HealthBar(
-            current=100, maximum=100,
-            x=1, y=0, bar_width=20,
-            show_label=True, label_prefix="HP",
+            current=100,
+            maximum=100,
+            x=1,
+            y=0,
+            bar_width=20,
+            show_label=True,
+            label_prefix="HP",
         )
         self.mp_bar = HealthBar(
-            current=50, maximum=50,
-            x=1, y=1, bar_width=20,
-            show_label=True, label_prefix="MP",
+            current=50,
+            maximum=50,
+            x=1,
+            y=1,
+            bar_width=20,
+            show_label=True,
+            label_prefix="MP",
         )
 
     def handle_events(self, events: list) -> None:
@@ -149,10 +157,15 @@ class HealthBarDemoScene(Scene):
         # Draw border around the play area (row 2 to bottom).
         play_top = 2
         self.buffer.put_text(0, play_top, self.CORNER_TL, fg="bright_black")
-        self.buffer.put_text(self._width - 1, play_top, self.CORNER_TR, fg="bright_black")
+        self.buffer.put_text(
+            self._width - 1, play_top, self.CORNER_TR, fg="bright_black"
+        )
         self.buffer.put_text(0, self._height - 1, self.CORNER_BL, fg="bright_black")
         self.buffer.put_text(
-            self._width - 1, self._height - 1, self.CORNER_BR, fg="bright_black",
+            self._width - 1,
+            self._height - 1,
+            self.CORNER_BR,
+            fg="bright_black",
         )
         for x in range(1, self._width - 1):
             self.buffer.put_text(x, play_top, self.BORDER_H, fg="bright_black")
@@ -163,8 +176,11 @@ class HealthBarDemoScene(Scene):
 
         # Draw player.
         self.buffer.put_text(
-            self.player_x, self.player_y, self.PLAYER_CHAR,
-            fg="bright_yellow", bold=True,
+            self.player_x,
+            self.player_y,
+            self.PLAYER_CHAR,
+            fg="bright_yellow",
+            bold=True,
         )
 
         # Instructions in the bottom border.
@@ -185,7 +201,10 @@ def main() -> None:
           wrap the run loop in ``with AltScreen():`` to restore the
           terminal buffer on exit.
     """
-    engine = Engine(title="healthbar demo", width=40, height=18, tps=30)
+    input_manager = InputManager()
+    engine = Engine(
+        title="healthbar demo", width=40, height=18, tps=30, input_manager=input_manager
+    )
     scene = HealthBarDemoScene(width=40, height=18)
     engine.push_scene(scene)
 

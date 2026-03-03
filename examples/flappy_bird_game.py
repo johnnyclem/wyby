@@ -56,7 +56,7 @@ import random
 
 from wyby.app import Engine, QuitSignal
 from wyby.grid import CellBuffer
-from wyby.input import KeyEvent
+from wyby.input import InputManager, KeyEvent
 from wyby.scene import Scene
 
 
@@ -390,9 +390,7 @@ class FlappyBirdScene(Scene):
 
             score_msg = f"Score: {self.score}"
             score_msg_x = max(0, (self._width - len(score_msg)) // 2)
-            self.buffer.put_text(
-                score_msg_x, msg_y + 1, score_msg, fg="bright_white"
-            )
+            self.buffer.put_text(score_msg_x, msg_y + 1, score_msg, fg="bright_white")
 
             restart_hint = "R: restart  Q: quit"
             hint_x = max(0, (self._width - len(restart_hint)) // 2)
@@ -414,7 +412,10 @@ def main() -> None:
           wrap the run loop in ``with AltScreen():`` to restore the
           terminal buffer on exit.
     """
-    engine = Engine(title="flappy_bird", width=40, height=20, tps=30)
+    input_manager = InputManager()
+    engine = Engine(
+        title="flappy_bird", width=40, height=20, tps=30, input_manager=input_manager
+    )
     scene = FlappyBirdScene(width=40, height=20)
     engine.push_scene(scene)
 
