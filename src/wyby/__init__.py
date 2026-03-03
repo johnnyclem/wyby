@@ -21,6 +21,7 @@ Package structure::
         color.py         # Colour utilities, palette management
         save.py          # Schema-based save/load helpers
         diagnostics.py   # FPS counter, tick timing, capability reporting
+        platform_info.py # Platform differences catalog (Windows vs Unix)
         _platform.py     # Platform-specific input backends (internal)
         project_init.py  # Project scaffolding utilities
 
@@ -60,6 +61,15 @@ from wyby.unicode import (
     string_width,
 )
 from wyby.layer import Layer, LayerStack
+from wyby.platform_info import (
+    CATEGORIES as PLATFORM_CATEGORIES,
+    PLATFORM_DIFFERENCES,
+    PlatformDifference,
+    PlatformInfo,
+    format_platform_report,
+    get_differences_by_category,
+    get_platform_info,
+)
 from wyby.mouse_warnings import (
     check_mouse_drag_warning,
     check_mouse_hover_warning,
@@ -146,10 +156,17 @@ __all__ = [
     "parse_input_events",
     "parse_key_events",
     "parse_color",
+    "PLATFORM_CATEGORIES",
+    "PLATFORM_DIFFERENCES",
+    "PlatformDifference",
+    "PlatformInfo",
     "show_cursor",
     "string_width",
     "TERMINAL_CAVEATS",
     "TestCard",
     "build_test_card",
     "format_report",
+    "format_platform_report",
+    "get_differences_by_category",
+    "get_platform_info",
 ]
