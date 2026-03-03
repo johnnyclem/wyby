@@ -112,6 +112,19 @@ from wyby.resize import ResizeHandler, get_terminal_size
 from wyby.scene import Scene, SceneStack
 from wyby.signal_handlers import SignalHandler
 from wyby.transition import Cut, FadeTransition, SlideTransition, Transition
+from wyby.font_variance import (
+    DEFAULT_CELL_ASPECT_RATIO,
+    FONT_VARIANCE_ISSUES,
+    ISSUE_CATEGORIES as FONT_VARIANCE_CATEGORIES,
+    CellGeometry,
+    FontVarianceIssue,
+    check_font_variance_warnings,
+    estimate_cell_aspect_ratio,
+    format_font_variance_report,
+    get_issues_by_category as get_font_issues_by_category,
+    get_issues_for_terminal,
+    log_font_variance_warnings,
+)
 from wyby.terminal_test import (
     TERMINAL_CAVEATS,
     TestCard,
@@ -225,4 +238,15 @@ __all__ = [
     "format_platform_report",
     "get_differences_by_category",
     "get_platform_info",
+    "CellGeometry",
+    "DEFAULT_CELL_ASPECT_RATIO",
+    "FontVarianceIssue",
+    "FONT_VARIANCE_ISSUES",
+    "FONT_VARIANCE_CATEGORIES",
+    "check_font_variance_warnings",
+    "estimate_cell_aspect_ratio",
+    "format_font_variance_report",
+    "get_font_issues_by_category",
+    "get_issues_for_terminal",
+    "log_font_variance_warnings",
 ]
