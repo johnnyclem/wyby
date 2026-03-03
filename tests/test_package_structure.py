@@ -17,7 +17,6 @@ import wyby
 # The modules defined in SCOPE.md's "Proposed Package Structure".
 # _platform is internal (prefixed with _); the rest are public.
 EXPECTED_PUBLIC_MODULES = [
-    "app",
     "input",
     "scene",
     "entity",
@@ -32,8 +31,9 @@ EXPECTED_INTERNAL_MODULES = [
     "_platform",
 ]
 
-# project_init already existed before this task.
+# Modules that have real implementations (no longer stubs).
 EXPECTED_EXISTING_MODULES = [
+    "app",
     "project_init",
 ]
 
