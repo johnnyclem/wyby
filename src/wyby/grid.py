@@ -30,9 +30,9 @@ Caveats
   in this module corrects for that — callers must account for it when
   designing visuals.
 - **Unicode width is not handled here.**  CJK characters occupy 2 cells,
-  and emoji width varies by terminal.  ``put_text`` places one ``Cell``
-  per Python character; correct multi-cell handling is deferred to a
-  future ``wcwidth`` integration.
+  and emoji width varies by terminal.  ``put_text`` and ``draw_text``
+  place one ``Cell`` per Python character; correct multi-cell handling
+  is deferred to a future ``wcwidth`` integration.
 - **No bounds errors.**  ``put()`` and ``put_text()`` silently clip
   writes that fall outside the buffer.  ``get()`` returns ``None`` for
   out-of-bounds coordinates.  This keeps rendering code simple (no need
@@ -42,6 +42,10 @@ Caveats
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rich.style import Style
 
 # Default character for empty / cleared cells.
 _DEFAULT_CHAR = " "
@@ -188,6 +192,64 @@ class CellBuffer:
         """
         for i, char in enumerate(text):
             self.put(x + i, y, Cell(char=char, fg=fg, bg=bg, bold=bold, dim=dim))
+
+    def draw_text(
+        self,
+        x: int,
+        y: int,
+        text: str,
+        style: Style,
+    ) -> None:
+        """Write a string at (*x*, *y*) using a Rich :class:`~rich.style.Style`.
+
+        Convenience wrapper around :meth:`put_text` that accepts a Rich
+        ``Style`` object instead of individual keyword arguments.  The
+        style is decomposed into :class:`Cell` attributes and delegated
+        to ``put_text``.
+
+        Args:
+            x: Starting column (0-indexed).
+            y: Row (0-indexed).
+            text: The string to write.  Each Python character occupies
+                one cell.
+            style: A :class:`rich.style.Style` instance.  Only ``color``
+                (foreground), ``bgcolor`` (background), ``bold``, and
+                ``dim`` are extracted — other attributes (italic,
+                underline, strikethrough, etc.) are **silently ignored**
+                because :class:`Cell` does not support them.
+
+        Caveats:
+            - ``Style`` attributes that are ``None`` (meaning "not set"
+              / "inherit") map to the Cell default: ``None`` for colours,
+              ``False`` for bold/dim.  There is no style inheritance in
+              CellBuffer.
+            - ``Style.color`` and ``Style.bgcolor`` are converted to
+              strings via ``str()``.  This produces Rich-compatible
+              colour names (``"red"``, ``"#ff0000"``, etc.) but the
+              CellBuffer does not validate colour values — invalid
+              strings pass through and may cause errors at render time.
+            - Only ``bold`` and ``dim`` are mapped.  ``italic``,
+              ``underline``, ``blink``, ``reverse``, and ``strike``
+              are part of Rich's ``Style`` but are not representable
+              in :class:`Cell`.  If you need those, render directly
+              with Rich rather than through CellBuffer.
+            - Same clipping behaviour as :meth:`put_text`: characters
+              outside the buffer bounds are silently ignored.
+            - Same Unicode caveat as :meth:`put_text`: each Python
+              character is treated as one cell wide.  CJK and emoji
+              that occupy two terminal columns are not handled correctly.
+        """
+        # Rich Color.__str__ returns the repr, not the color name.
+        # Use Color.name to get the original string ("red", "#ff0000").
+        fg = style.color.name if style.color is not None else None
+        bg = style.bgcolor.name if style.bgcolor is not None else None
+        self.put_text(
+            x, y, text,
+            fg=fg,
+            bg=bg,
+            bold=bool(style.bold),
+            dim=bool(style.dim),
+        )
 
     def fill(self, cell: Cell) -> None:
         """Fill the entire buffer with copies of *cell*."""

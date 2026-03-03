@@ -501,3 +501,156 @@ class TestCompositingPattern:
         floor = buf.get(3, 2)
         assert floor is not None
         assert floor.char == "."
+
+
+# ---------------------------------------------------------------------------
+# CellBuffer.draw_text
+# ---------------------------------------------------------------------------
+
+
+class TestCellBufferDrawText:
+    """draw_text writes text using a Rich Style object."""
+
+    def test_writes_string_with_style(self) -> None:
+        from rich.style import Style
+
+        buf = CellBuffer(10, 1)
+        buf.draw_text(0, 0, "Hello", Style(color="red", bgcolor="blue", bold=True))
+        for i, ch in enumerate("Hello"):
+            cell = buf.get(i, 0)
+            assert cell is not None
+            assert cell.char == ch
+            assert cell.fg == "red"
+            assert cell.bg == "blue"
+            assert cell.bold is True
+
+    def test_fg_only(self) -> None:
+        from rich.style import Style
+
+        buf = CellBuffer(10, 1)
+        buf.draw_text(0, 0, "Hi", Style(color="green"))
+        cell = buf.get(0, 0)
+        assert cell is not None
+        assert cell.fg == "green"
+        assert cell.bg is None
+        assert cell.bold is False
+        assert cell.dim is False
+
+    def test_bg_only(self) -> None:
+        from rich.style import Style
+
+        buf = CellBuffer(10, 1)
+        buf.draw_text(0, 0, "Hi", Style(bgcolor="yellow"))
+        cell = buf.get(0, 0)
+        assert cell is not None
+        assert cell.fg is None
+        assert cell.bg == "yellow"
+
+    def test_bold(self) -> None:
+        from rich.style import Style
+
+        buf = CellBuffer(10, 1)
+        buf.draw_text(0, 0, "Hi", Style(bold=True))
+        cell = buf.get(0, 0)
+        assert cell is not None
+        assert cell.bold is True
+        assert cell.dim is False
+
+    def test_dim(self) -> None:
+        from rich.style import Style
+
+        buf = CellBuffer(10, 1)
+        buf.draw_text(0, 0, "Hi", Style(dim=True))
+        cell = buf.get(0, 0)
+        assert cell is not None
+        assert cell.dim is True
+        assert cell.bold is False
+
+    def test_default_style_maps_to_cell_defaults(self) -> None:
+        """A default Style() should produce cells with no fg/bg and bold/dim False."""
+        from rich.style import Style
+
+        buf = CellBuffer(10, 1)
+        buf.draw_text(0, 0, "A", Style())
+        cell = buf.get(0, 0)
+        assert cell is not None
+        assert cell.char == "A"
+        assert cell.fg is None
+        assert cell.bg is None
+        assert cell.bold is False
+        assert cell.dim is False
+
+    def test_unsupported_style_attrs_are_ignored(self) -> None:
+        """italic/underline/strikethrough in Style are silently dropped."""
+        from rich.style import Style
+
+        buf = CellBuffer(10, 1)
+        buf.draw_text(
+            0, 0, "X",
+            Style(color="red", italic=True, underline=True, strike=True),
+        )
+        cell = buf.get(0, 0)
+        assert cell is not None
+        assert cell.char == "X"
+        assert cell.fg == "red"
+
+    def test_clips_at_right_edge(self) -> None:
+        from rich.style import Style
+
+        buf = CellBuffer(5, 1)
+        buf.draw_text(3, 0, "ABCDE", Style(color="red"))
+        assert buf.get(3, 0) is not None
+        assert buf.get(3, 0).char == "A"  # type: ignore[union-attr]
+        assert buf.get(4, 0) is not None
+        assert buf.get(4, 0).char == "B"  # type: ignore[union-attr]
+
+    def test_clips_negative_start(self) -> None:
+        from rich.style import Style
+
+        buf = CellBuffer(5, 1)
+        buf.draw_text(-2, 0, "ABCDE", Style())
+        assert buf.get(0, 0) is not None
+        assert buf.get(0, 0).char == "C"  # type: ignore[union-attr]
+
+    def test_does_not_affect_other_rows(self) -> None:
+        from rich.style import Style
+
+        buf = CellBuffer(10, 3)
+        buf.draw_text(0, 1, "Hi", Style())
+        cell = buf.get(0, 0)
+        assert cell is not None
+        assert cell.char == _DEFAULT_CHAR
+
+    def test_empty_string_is_noop(self) -> None:
+        from rich.style import Style
+
+        buf = CellBuffer(5, 1)
+        buf.draw_text(0, 0, "", Style(color="red"))
+        cell = buf.get(0, 0)
+        assert cell is not None
+        assert cell.char == _DEFAULT_CHAR
+
+    def test_hex_color(self) -> None:
+        """Hex colour strings should pass through correctly."""
+        from rich.style import Style
+
+        buf = CellBuffer(10, 1)
+        buf.draw_text(0, 0, "X", Style(color="#ff0000", bgcolor="#00ff00"))
+        cell = buf.get(0, 0)
+        assert cell is not None
+        assert cell.fg is not None
+        assert cell.bg is not None
+
+    def test_style_reuse(self) -> None:
+        """A single Style object can be reused across multiple draw_text calls."""
+        from rich.style import Style
+
+        buf = CellBuffer(10, 2)
+        style = Style(color="cyan", bold=True)
+        buf.draw_text(0, 0, "Line1", style)
+        buf.draw_text(0, 1, "Line2", style)
+        for y in range(2):
+            cell = buf.get(0, y)
+            assert cell is not None
+            assert cell.fg == "cyan"
+            assert cell.bold is True
