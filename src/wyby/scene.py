@@ -32,6 +32,15 @@ Caveats:
       list of events drained from the :class:`EventQueue`, **before**
       :meth:`Scene.update`. Only the top scene receives events.
       Scenes that do not need input can leave the default no-op.
+    - :meth:`Scene.on_resize` is called when the terminal size changes.
+      Unlike input events, **all** scenes on the stack receive resize
+      notifications — not just the top scene — because paused scenes
+      that render behind an overlay also need to adapt their layout.
+      The callback receives ``(columns, rows)`` and defaults to a
+      no-op.  Resize dispatch depends on the engine polling
+      :class:`~wyby.resize.ResizeHandler` and calling
+      :meth:`SceneStack.dispatch_resize`; if the engine does not do
+      this, ``on_resize`` is never called.
 """
 
 from __future__ import annotations
@@ -71,13 +80,14 @@ class Scene(ABC):
 
     In addition to the override-based hooks, scenes support
     **callback-based hooks** via :meth:`add_enter_hook`,
-    :meth:`add_exit_hook`, :meth:`add_pause_hook`, and
-    :meth:`add_resume_hook`.  These allow external code (debug
-    tools, analytics, sound managers) to react to scene transitions
-    without subclassing.  For menus and pause overlays, the pause
-    and resume hooks are particularly useful — e.g., pausing
-    background music when a pause menu is pushed, and resuming it
-    when the menu is popped.
+    :meth:`add_exit_hook`, :meth:`add_pause_hook`,
+    :meth:`add_resume_hook`, and :meth:`add_resize_hook`.  These
+    allow external code (debug tools, analytics, sound managers)
+    to react to scene transitions and terminal resize without
+    subclassing.  For menus and pause overlays, the pause and
+    resume hooks are particularly useful — e.g., pausing background
+    music when a pause menu is pushed, and resuming it when the
+    menu is popped.
 
     Caveats:
         - Scenes do **not** receive a reference to the engine or stack
@@ -114,6 +124,7 @@ class Scene(ABC):
         self._exit_hooks: list[Callable[[], None]] = []
         self._pause_hooks: list[Callable[[], None]] = []
         self._resume_hooks: list[Callable[[], None]] = []
+        self._resize_hooks: list[Callable[[int, int], None]] = []
         self._updates_when_paused: bool = False
         self._renders_when_paused: bool = False
 
@@ -289,6 +300,44 @@ class Scene(ABC):
         to resume music, timers, etc.
         """
 
+    def on_resize(self, columns: int, rows: int) -> None:
+        """Called when the terminal is resized.
+
+        Unlike input events, **all** scenes on the stack receive
+        resize notifications — not just the top scene.  This is
+        because paused scenes that render behind a transparent
+        overlay (``renders_when_paused = True``) also need to know
+        the new terminal dimensions in order to re-layout.
+
+        Override this to recalculate layouts, reposition UI elements,
+        or clamp entity positions to the new bounds.
+
+        Args:
+            columns: The new terminal width in columns.
+            rows: The new terminal height in rows.
+
+        Caveats:
+            - This is only called when the engine's
+              :class:`~wyby.resize.ResizeHandler` detects a resize
+              **and** the engine calls
+              :meth:`SceneStack.dispatch_resize`.  If the engine
+              does not poll for resize, ``on_resize`` is never called.
+            - The reported size comes from
+              :func:`shutil.get_terminal_size`, which returns a
+              fallback of ``(80, 24)`` when stdout is not a real
+              terminal (piped output, CI, pytest capture).  Do not
+              assume the values always reflect the actual display.
+            - On some platforms, the size may lag behind the actual
+              terminal by one frame after a resize, depending on when
+              the OS updates the pty size.
+            - This method is called synchronously in the game-loop
+              thread.  Keep the implementation fast to avoid blocking
+              the loop.
+            - Resize may fire at any point in the tick (depending on
+              when the engine polls).  Do not assume it runs before
+              or after ``update()`` / ``render()`` in the same tick.
+        """
+
     # ------------------------------------------------------------------
     # Callback-based hooks (register/remove without subclassing)
     # ------------------------------------------------------------------
@@ -458,6 +507,50 @@ class Scene(ABC):
         hooks = getattr(self, "_resume_hooks", [])
         hooks.remove(callback)  # raises ValueError if not found
 
+    def add_resize_hook(self, callback: Callable[[int, int], None]) -> None:
+        """Register a callback invoked when the terminal is resized.
+
+        Callbacks run after :meth:`on_resize`, in registration order.
+        Each callback receives ``(columns, rows)`` as positional
+        arguments.
+
+        Args:
+            callback: A callable accepting two ints (columns, rows).
+
+        Raises:
+            TypeError: If *callback* is not callable.
+
+        Caveats:
+            - The same callback can be registered multiple times and
+              will be called once per registration.
+            - Callbacks must not raise. An exception in a callback
+              prevents subsequent callbacks from running.
+            - Unlike enter/exit/pause/resume hooks which take zero
+              arguments, resize hooks receive the new terminal
+              dimensions ``(columns, rows)``.
+        """
+        if not callable(callback):
+            raise TypeError(
+                f"callback must be callable, got {type(callback).__name__}"
+            )
+        if not hasattr(self, "_resize_hooks"):
+            self._resize_hooks = []
+        self._resize_hooks.append(callback)
+
+    def remove_resize_hook(self, callback: Callable[[int, int], None]) -> None:
+        """Remove a previously registered on-resize callback.
+
+        Only the first matching registration is removed.
+
+        Args:
+            callback: The callback to remove.
+
+        Raises:
+            ValueError: If *callback* is not registered.
+        """
+        hooks = getattr(self, "_resize_hooks", [])
+        hooks.remove(callback)  # raises ValueError if not found
+
     # ------------------------------------------------------------------
     # Internal: fire hooks (called by SceneStack)
     # ------------------------------------------------------------------
@@ -485,6 +578,12 @@ class Scene(ABC):
         self.on_resume()
         for cb in getattr(self, "_resume_hooks", ()):
             cb()
+
+    def _fire_resize(self, columns: int, rows: int) -> None:
+        """Invoke on_resize(columns, rows) then all registered resize callbacks."""
+        self.on_resize(columns, rows)
+        for cb in getattr(self, "_resize_hooks", ()):
+            cb(columns, rows)
 
 
 class SceneStack:
@@ -847,6 +946,63 @@ class SceneStack:
                 )
             return False
         top.handle_events(events)
+        return True
+
+    def dispatch_resize(self, columns: int, rows: int) -> bool:
+        """Notify all scenes on the stack of a terminal resize.
+
+        Unlike :meth:`dispatch_events` (top-scene-only), resize is
+        dispatched to **every** scene on the stack, bottom-to-top.
+        This is because all scenes — including paused ones that render
+        behind an overlay — may need to adapt their layout to the new
+        terminal dimensions.
+
+        The engine should call this when
+        :meth:`~wyby.resize.ResizeHandler.consume` returns ``True``.
+
+        Args:
+            columns: The new terminal width in columns.
+            rows: The new terminal height in rows.
+
+        Returns:
+            ``True`` if at least one scene was notified, ``False`` if
+            the stack was empty.
+
+        Caveats:
+            - **All scenes are notified**, not just the top scene.
+              A paused gameplay scene behind a pause overlay may need
+              to re-layout its grid to the new terminal size.
+            - Dispatch order is bottom-to-top, matching the update and
+              render order.  If a scene's ``on_resize`` mutates the
+              stack, the remaining scenes in the snapshot are still
+              notified.
+            - Scenes that do not care about resize can leave
+              ``on_resize`` as the default no-op.  There is no per-scene
+              flag to opt out — the cost of calling a no-op on a few
+              scenes is negligible.
+            - The values come from :func:`shutil.get_terminal_size`
+              via the :class:`~wyby.resize.ResizeHandler`.  See
+              :meth:`Scene.on_resize` caveats for accuracy notes.
+        """
+        if not self._stack:
+            _logger.debug(
+                "dispatch_resize: stack empty, ignoring %dx%d",
+                columns,
+                rows,
+            )
+            return False
+
+        # Snapshot the stack so mutations during on_resize don't
+        # affect the iteration.
+        snapshot = list(self._stack)
+        _logger.debug(
+            "Dispatching resize %dx%d to %d scene(s)",
+            columns,
+            rows,
+            len(snapshot),
+        )
+        for scene in snapshot:
+            scene._fire_resize(columns, rows)
         return True
 
     def clear(self) -> None:

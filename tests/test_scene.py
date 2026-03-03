@@ -1984,3 +1984,357 @@ class TestDispatchEvents:
         assert len(new_events) == 1
         assert new_events[0] == [evt]
         assert len(old_events) == 0
+
+
+# ---------------------------------------------------------------------------
+# Scene.on_resize — per-scene resize callback
+# ---------------------------------------------------------------------------
+
+
+class TestSceneOnResize:
+    """Scene.on_resize is a no-op by default and can be overridden."""
+
+    def test_default_on_resize_is_noop(self) -> None:
+        """The base on_resize does nothing and does not raise."""
+        scene = DummyScene()
+        scene.on_resize(120, 40)  # Should not raise.
+
+    def test_override_on_resize_receives_dimensions(self) -> None:
+        """A subclass can override on_resize to receive (columns, rows)."""
+        received: list[tuple[int, int]] = []
+
+        class ResizeScene(Scene):
+            def on_resize(self, columns: int, rows: int) -> None:
+                received.append((columns, rows))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = ResizeScene()
+        scene.on_resize(100, 50)
+        assert received == [(100, 50)]
+
+    def test_fire_resize_calls_on_resize(self) -> None:
+        """_fire_resize invokes on_resize with the given dimensions."""
+        received: list[tuple[int, int]] = []
+
+        class ResizeScene(Scene):
+            def on_resize(self, columns: int, rows: int) -> None:
+                received.append((columns, rows))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = ResizeScene()
+        scene._fire_resize(80, 24)
+        assert received == [(80, 24)]
+
+    def test_fire_resize_calls_hooks_after_on_resize(self) -> None:
+        """_fire_resize invokes registered hooks after on_resize."""
+        order: list[str] = []
+
+        class ResizeScene(Scene):
+            def on_resize(self, columns: int, rows: int) -> None:
+                order.append("on_resize")
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = ResizeScene()
+        scene.add_resize_hook(lambda c, r: order.append("hook"))
+        scene._fire_resize(80, 24)
+        assert order == ["on_resize", "hook"]
+
+
+# ---------------------------------------------------------------------------
+# Scene resize callback hooks (add_resize_hook / remove_resize_hook)
+# ---------------------------------------------------------------------------
+
+
+class TestSceneResizeHooks:
+    """Callback-based resize hooks follow the same pattern as other hooks."""
+
+    def test_add_resize_hook_receives_dimensions(self) -> None:
+        """Resize hooks receive (columns, rows)."""
+        scene = DummyScene()
+        received: list[tuple[int, int]] = []
+        scene.add_resize_hook(lambda c, r: received.append((c, r)))
+        scene._fire_resize(120, 40)
+        assert received == [(120, 40)]
+
+    def test_multiple_resize_hooks_fire_in_order(self) -> None:
+        scene = DummyScene()
+        order: list[int] = []
+        scene.add_resize_hook(lambda c, r: order.append(1))
+        scene.add_resize_hook(lambda c, r: order.append(2))
+        scene.add_resize_hook(lambda c, r: order.append(3))
+        scene._fire_resize(80, 24)
+        assert order == [1, 2, 3]
+
+    def test_remove_resize_hook(self) -> None:
+        scene = DummyScene()
+        called = []
+        cb = lambda c, r: called.append(True)  # noqa: E731
+        scene.add_resize_hook(cb)
+        scene.remove_resize_hook(cb)
+        scene._fire_resize(80, 24)
+        assert called == []
+
+    def test_remove_resize_hook_not_registered_raises(self) -> None:
+        scene = DummyScene()
+        with pytest.raises(ValueError):
+            scene.remove_resize_hook(lambda c, r: None)
+
+    def test_add_resize_hook_rejects_non_callable(self) -> None:
+        scene = DummyScene()
+        with pytest.raises(TypeError, match="callback must be callable"):
+            scene.add_resize_hook(42)  # type: ignore[arg-type]
+
+    def test_same_callback_registered_twice(self) -> None:
+        """The same callback can be registered twice and fires twice."""
+        scene = DummyScene()
+        count: list[int] = []
+        cb = lambda c, r: count.append(1)  # noqa: E731
+        scene.add_resize_hook(cb)
+        scene.add_resize_hook(cb)
+        scene._fire_resize(80, 24)
+        assert len(count) == 2
+
+
+# ---------------------------------------------------------------------------
+# Scene resize hooks without super().__init__() (lazy init)
+# ---------------------------------------------------------------------------
+
+
+class TestSceneResizeHooksWithoutSuperInit:
+    """Resize hooks work even if the subclass doesn't call super().__init__()."""
+
+    def test_resize_hook_works_without_super_init(self) -> None:
+        class NoSuperScene(Scene):
+            def __init__(self) -> None:
+                # Deliberately NOT calling super().__init__()
+                pass
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = NoSuperScene()
+        received: list[tuple[int, int]] = []
+        scene.add_resize_hook(lambda c, r: received.append((c, r)))
+        scene._fire_resize(100, 50)
+        assert received == [(100, 50)]
+
+    def test_fire_resize_without_hooks_is_safe(self) -> None:
+        """_fire_resize on a scene with no hooks list doesn't crash."""
+
+        class NoSuperScene(Scene):
+            def __init__(self) -> None:
+                pass
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        scene = NoSuperScene()
+        scene._fire_resize(80, 24)  # Should not raise.
+
+
+# ---------------------------------------------------------------------------
+# SceneStack.dispatch_resize — resize routing to all scenes
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchResize:
+    """SceneStack.dispatch_resize notifies all scenes on the stack."""
+
+    def test_notifies_all_scenes(self) -> None:
+        """All scenes on the stack receive on_resize, not just the top."""
+        stack = SceneStack()
+        resizes: dict[str, list[tuple[int, int]]] = {"bottom": [], "top": []}
+
+        class BottomScene(Scene):
+            def on_resize(self, columns: int, rows: int) -> None:
+                resizes["bottom"].append((columns, rows))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        class TopScene(Scene):
+            def on_resize(self, columns: int, rows: int) -> None:
+                resizes["top"].append((columns, rows))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        stack.push(BottomScene())
+        stack.push(TopScene())
+        result = stack.dispatch_resize(120, 40)
+
+        assert result is True
+        assert resizes["bottom"] == [(120, 40)]
+        assert resizes["top"] == [(120, 40)]
+
+    def test_returns_false_on_empty_stack(self) -> None:
+        stack = SceneStack()
+        result = stack.dispatch_resize(80, 24)
+        assert result is False
+
+    def test_returns_true_with_scenes(self) -> None:
+        stack = SceneStack()
+        stack.push(DummyScene())
+        result = stack.dispatch_resize(80, 24)
+        assert result is True
+
+    def test_dispatch_order_is_bottom_to_top(self) -> None:
+        """Resize is dispatched bottom-to-top, matching render order."""
+        stack = SceneStack()
+        order: list[str] = []
+
+        class OrderScene(Scene):
+            def __init__(self, name: str) -> None:
+                super().__init__()
+                self._name = name
+
+            def on_resize(self, columns: int, rows: int) -> None:
+                order.append(self._name)
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        stack.push(OrderScene("first"))
+        stack.push(OrderScene("second"))
+        stack.push(OrderScene("third"))
+        stack.dispatch_resize(100, 50)
+
+        assert order == ["first", "second", "third"]
+
+    def test_single_scene_receives_resize(self) -> None:
+        """A single scene on the stack receives the resize."""
+        received: list[tuple[int, int]] = []
+
+        class ResizeScene(Scene):
+            def on_resize(self, columns: int, rows: int) -> None:
+                received.append((columns, rows))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        stack = SceneStack()
+        stack.push(ResizeScene())
+        stack.dispatch_resize(200, 60)
+
+        assert received == [(200, 60)]
+
+    def test_resize_hooks_also_fire(self) -> None:
+        """Callback-based resize hooks fire during dispatch_resize."""
+        stack = SceneStack()
+        hook_received: list[tuple[int, int]] = []
+
+        scene = DummyScene()
+        scene.add_resize_hook(lambda c, r: hook_received.append((c, r)))
+        stack.push(scene)
+        stack.dispatch_resize(120, 40)
+
+        assert hook_received == [(120, 40)]
+
+    def test_stack_mutation_during_resize_uses_snapshot(self) -> None:
+        """If a scene mutates the stack during on_resize, the snapshot
+        ensures remaining scenes are still notified."""
+        stack = SceneStack()
+        notified: list[str] = []
+
+        class MutatingScene(Scene):
+            def on_resize(self, columns: int, rows: int) -> None:
+                notified.append("mutating")
+                # Push a new scene during resize dispatch
+                stack.push(DummyScene("pushed_during_resize"))
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        class StableScene(Scene):
+            def on_resize(self, columns: int, rows: int) -> None:
+                notified.append("stable")
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        stack.push(MutatingScene())
+        stack.push(StableScene())
+        stack.dispatch_resize(80, 24)
+
+        # Both original scenes should be notified despite the mutation.
+        assert "mutating" in notified
+        assert "stable" in notified
+
+    def test_exception_in_on_resize_propagates(self) -> None:
+        """If on_resize raises, the exception propagates."""
+        stack = SceneStack()
+
+        class CrashingScene(Scene):
+            def on_resize(self, columns: int, rows: int) -> None:
+                raise ValueError("resize boom")
+
+            def update(self, dt: float) -> None:
+                pass
+
+            def render(self) -> None:
+                pass
+
+        stack.push(CrashingScene())
+        with pytest.raises(ValueError, match="resize boom"):
+            stack.dispatch_resize(80, 24)
+
+    def test_empty_stack_logs_debug(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Dispatching resize to an empty stack logs a debug message."""
+        stack = SceneStack()
+        with caplog.at_level(logging.DEBUG, logger="wyby.scene"):
+            stack.dispatch_resize(80, 24)
+
+        assert any("stack empty" in r.message for r in caplog.records)
+
+    def test_dispatch_logs_scene_count(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Dispatching resize logs the number of scenes notified."""
+        stack = SceneStack()
+        stack.push(DummyScene("a"))
+        stack.push(DummyScene("b"))
+        with caplog.at_level(logging.DEBUG, logger="wyby.scene"):
+            stack.dispatch_resize(100, 50)
+
+        assert any("2 scene(s)" in r.message for r in caplog.records)
