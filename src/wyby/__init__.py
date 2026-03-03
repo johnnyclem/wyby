@@ -30,6 +30,7 @@ are functional.
 """
 
 from wyby._logging import configure_logging, setup_null_handler
+from wyby.alt_screen import AltScreen, disable_alt_screen, enable_alt_screen
 from wyby.app import Engine, QuitSignal
 from wyby.diagnostics import FPSCounter
 from wyby.event import Event, EventQueue
@@ -43,6 +44,7 @@ from wyby.scene import Scene, SceneStack
 setup_null_handler()
 
 __all__ = [
+    "AltScreen",
     "Engine",
     "Event",
     "EventQueue",
@@ -52,5 +54,7 @@ __all__ = [
     "Scene",
     "SceneStack",
     "configure_logging",
+    "disable_alt_screen",
+    "enable_alt_screen",
     "get_terminal_size",
 ]
