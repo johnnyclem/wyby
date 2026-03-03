@@ -32,7 +32,12 @@ and ``renderer`` are functional.
 from wyby._logging import configure_logging, setup_null_handler
 from wyby.alt_screen import AltScreen, disable_alt_screen, enable_alt_screen
 from wyby.app import Engine, EngineConfig, QuitSignal
-from wyby.diagnostics import FPSCounter
+from wyby.diagnostics import (
+    ColorSupport,
+    FPSCounter,
+    TerminalCapabilities,
+    detect_capabilities,
+)
 from wyby.event import Event, EventQueue
 from wyby.grid import Cell, CellBuffer
 from wyby.layer import Layer, LayerStack
@@ -50,6 +55,7 @@ __all__ = [
     "AltScreen",
     "Cell",
     "CellBuffer",
+    "ColorSupport",
     "Engine",
     "EngineConfig",
     "Event",
@@ -63,8 +69,10 @@ __all__ = [
     "ResizeHandler",
     "Scene",
     "SceneStack",
+    "TerminalCapabilities",
     "configure_logging",
     "create_console",
+    "detect_capabilities",
     "disable_alt_screen",
     "enable_alt_screen",
     "get_terminal_size",

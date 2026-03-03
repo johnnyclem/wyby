@@ -1,9 +1,19 @@
 """FPS counter, tick timing, and terminal capability reporting.
 
 This module provides diagnostic tools for measuring actual performance
-in a given terminal environment.  The primary class is :class:`FPSCounter`,
-which tracks wall-clock tick intervals and computes smoothed FPS metrics
-over a rolling window.
+in a given terminal environment and detecting terminal capabilities.
+
+The primary classes are:
+
+- :class:`FPSCounter` — tracks wall-clock tick intervals and computes
+  smoothed FPS metrics over a rolling window.
+- :class:`ColorSupport` — enum representing the terminal's colour depth
+  (none, standard 16-colour, 256-colour, or truecolor 24-bit).
+- :class:`TerminalCapabilities` — frozen snapshot of detected terminal
+  capabilities (colour depth, Unicode support, terminal size, TTY status,
+  and identified terminal emulator).
+
+Use :func:`detect_capabilities` to probe the current environment.
 
 Caveats:
     - FPS reflects wall-clock tick throughput, **not** a guaranteed frame
@@ -20,17 +30,407 @@ Caveats:
     - The rolling window introduces smoothing lag — at 30 tps with a
       60-sample window, it takes ~2 seconds before the average fully
       reflects a sustained change in frame rate.
-    - Terminal capability detection (truecolor support, Unicode width,
-      terminal size) is best-effort and not yet implemented.  Not all
-      terminals accurately report their capabilities.
+    - Terminal capability detection is **best-effort**.  Not all terminals
+      accurately report their capabilities via environment variables.
+      Some terminals support truecolor but do not set ``$COLORTERM``.
+      Some report UTF-8 in locale settings but render Unicode poorly.
+      Detection results should be treated as hints, not guarantees.
+    - ``$COLORTERM`` is the primary signal for truecolor support, but it
+      is not standardised — it is a de-facto convention adopted by most
+      modern terminal emulators.  Absence of ``$COLORTERM`` does not
+      necessarily mean truecolor is unsupported.
+    - ``$TERM_PROGRAM`` and similar environment variables are set by the
+      terminal emulator process.  Inside ``tmux`` or ``screen``, these may
+      reflect the multiplexer rather than the outer terminal, which can
+      cause capability under-reporting.
 """
 
 from __future__ import annotations
 
 import collections
+import enum
 import logging
+import os
+import sys
 
 _logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Terminal capability detection
+# ---------------------------------------------------------------------------
+
+
+class ColorSupport(enum.Enum):
+    """Terminal colour depth levels.
+
+    Ordered from least to most capable.  Use comparison (``>=``, ``<``,
+    etc.) via the :meth:`__ge__` family to check minimum support level::
+
+        caps = detect_capabilities()
+        if caps.color_support >= ColorSupport.TRUECOLOR:
+            # safe to use 24-bit RGB colours
+            ...
+
+    Caveats:
+        - These levels represent what the terminal *claims* to support,
+          not what it actually renders correctly.  A terminal may report
+          truecolor support but have buggy 24-bit rendering.
+        - Rich performs its own colour fallback internally.  This enum
+          reflects the *detected* capability before Rich's fallback
+          logic runs.
+    """
+
+    NONE = 0
+    """No colour support detected (e.g., dumb terminal or pipe)."""
+
+    STANDARD = 1
+    """Standard 16-colour (4-bit) ANSI palette."""
+
+    EXTENDED = 2
+    """Extended 256-colour (8-bit) palette."""
+
+    TRUECOLOR = 3
+    """Truecolor 24-bit RGB support."""
+
+    def __ge__(self, other: object) -> bool:
+        if not isinstance(other, ColorSupport):
+            return NotImplemented
+        return self.value >= other.value
+
+    def __gt__(self, other: object) -> bool:
+        if not isinstance(other, ColorSupport):
+            return NotImplemented
+        return self.value > other.value
+
+    def __le__(self, other: object) -> bool:
+        if not isinstance(other, ColorSupport):
+            return NotImplemented
+        return self.value <= other.value
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, ColorSupport):
+            return NotImplemented
+        return self.value < other.value
+
+
+class TerminalCapabilities:
+    """Frozen snapshot of detected terminal capabilities.
+
+    Instances are created by :func:`detect_capabilities` and are
+    immutable after construction.  All fields are read-only properties.
+
+    Caveats:
+        - Capabilities are detected at construction time from environment
+          variables and file descriptor state.  They do **not** update if
+          the environment changes later (e.g., terminal resize, ``$TERM``
+          modification).  Call :func:`detect_capabilities` again to get
+          a fresh snapshot.
+        - ``is_tty`` checks ``sys.stdout.isatty()``.  If stdout is
+          redirected to a pipe or file, this will be ``False`` even if
+          the process is running inside a terminal emulator.
+        - ``utf8_supported`` checks locale environment variables
+          (``$LC_ALL``, ``$LC_CTYPE``, ``$LANG``).  A ``True`` result
+          means the locale *claims* UTF-8 support, not that the terminal
+          font contains all Unicode glyphs.  CJK characters, emoji, and
+          complex grapheme clusters may still render incorrectly.
+        - ``terminal_program`` is ``None`` if no known terminal
+          identification variable is set.  Inside ``tmux`` or ``screen``,
+          the reported program may be the multiplexer, not the outer
+          terminal.
+        - ``columns`` and ``rows`` reflect the terminal size at detection
+          time.  They fall back to 80x24 if the size cannot be determined
+          (e.g., when stdout is not a TTY).
+    """
+
+    __slots__ = (
+        "_color_support",
+        "_utf8_supported",
+        "_is_tty",
+        "_terminal_program",
+        "_columns",
+        "_rows",
+        "_colorterm_env",
+        "_term_env",
+    )
+
+    def __init__(
+        self,
+        *,
+        color_support: ColorSupport,
+        utf8_supported: bool,
+        is_tty: bool,
+        terminal_program: str | None,
+        columns: int,
+        rows: int,
+        colorterm_env: str,
+        term_env: str,
+    ) -> None:
+        self._color_support = color_support
+        self._utf8_supported = utf8_supported
+        self._is_tty = is_tty
+        self._terminal_program = terminal_program
+        self._columns = columns
+        self._rows = rows
+        self._colorterm_env = colorterm_env
+        self._term_env = term_env
+
+    @property
+    def color_support(self) -> ColorSupport:
+        """Detected colour depth level."""
+        return self._color_support
+
+    @property
+    def utf8_supported(self) -> bool:
+        """Whether the locale claims UTF-8 encoding."""
+        return self._utf8_supported
+
+    @property
+    def is_tty(self) -> bool:
+        """Whether stdout is connected to a terminal."""
+        return self._is_tty
+
+    @property
+    def terminal_program(self) -> str | None:
+        """Identified terminal emulator name, or ``None`` if unknown."""
+        return self._terminal_program
+
+    @property
+    def columns(self) -> int:
+        """Detected terminal width in columns."""
+        return self._columns
+
+    @property
+    def rows(self) -> int:
+        """Detected terminal height in rows."""
+        return self._rows
+
+    @property
+    def colorterm_env(self) -> str:
+        """Raw value of ``$COLORTERM`` (empty string if unset)."""
+        return self._colorterm_env
+
+    @property
+    def term_env(self) -> str:
+        """Raw value of ``$TERM`` (empty string if unset)."""
+        return self._term_env
+
+    def __repr__(self) -> str:
+        return (
+            f"TerminalCapabilities("
+            f"color_support={self._color_support.name}, "
+            f"utf8={self._utf8_supported}, "
+            f"tty={self._is_tty}, "
+            f"size={self._columns}x{self._rows}, "
+            f"program={self._terminal_program!r})"
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TerminalCapabilities):
+            return NotImplemented
+        return (
+            self._color_support == other._color_support
+            and self._utf8_supported == other._utf8_supported
+            and self._is_tty == other._is_tty
+            and self._terminal_program == other._terminal_program
+            and self._columns == other._columns
+            and self._rows == other._rows
+            and self._colorterm_env == other._colorterm_env
+            and self._term_env == other._term_env
+        )
+
+
+def _detect_color_support(colorterm: str, term: str) -> ColorSupport:
+    """Infer colour depth from environment variables.
+
+    Checks ``$COLORTERM`` first (the de-facto standard for signalling
+    truecolor), then falls back to heuristics on ``$TERM``.
+
+    Caveats:
+        - ``$COLORTERM`` is not part of any formal standard.  It is a
+          convention adopted by terminal emulators (kitty, iTerm2,
+          WezTerm, GNOME Terminal, etc.) and libraries (Rich, ncurses).
+        - Some terminals support truecolor but do not set ``$COLORTERM``.
+          Users can set it manually: ``export COLORTERM=truecolor``.
+        - ``$TERM`` values like ``xterm-256color`` indicate 256-colour
+          support, but the actual terminal may support more (or less)
+          than what ``$TERM`` claims — ``$TERM`` describes the *terminfo
+          entry*, not the terminal's true capabilities.
+        - Inside ``tmux``/``screen``, ``$TERM`` is typically overridden
+          to ``screen`` or ``tmux``, which may hide the outer terminal's
+          truecolor support.  Users should configure tmux to pass through
+          ``$COLORTERM`` or set ``terminal-overrides``.
+    """
+    # $COLORTERM is the strongest signal for truecolor.
+    colorterm_lower = colorterm.lower()
+    if colorterm_lower in ("truecolor", "24bit"):
+        return ColorSupport.TRUECOLOR
+
+    # Some terminals set $COLORTERM but not to a truecolor value.
+    # Fall through to $TERM-based heuristics.
+
+    term_lower = term.lower()
+
+    # Check for 256-color indicators in $TERM.
+    if "256color" in term_lower:
+        return ColorSupport.EXTENDED
+
+    # Bare "dumb" terminal or empty $TERM — no colour.
+    if term_lower in ("", "dumb"):
+        return ColorSupport.NONE
+
+    # Any other $TERM value — assume at least standard 16-colour.
+    return ColorSupport.STANDARD
+
+
+def _detect_utf8() -> bool:
+    """Check locale environment variables for UTF-8 encoding.
+
+    Inspects ``$LC_ALL``, ``$LC_CTYPE``, and ``$LANG`` (in priority
+    order, matching the POSIX locale resolution chain).
+
+    Caveats:
+        - A ``True`` result means the locale *claims* UTF-8 support.
+          The terminal font may not contain glyphs for all Unicode
+          code points.  Box-drawing characters and block elements are
+          safe; emoji and CJK characters are not guaranteed.
+        - On Windows, locale environment variables may not be set.
+          Python's ``sys.getdefaultencoding()`` typically returns
+          ``'utf-8'`` on modern Python, but terminal rendering of
+          Unicode depends on the console host (Windows Terminal handles
+          it well; legacy ``conhost`` does not).
+        - Inside containers or minimal environments, locale variables
+          may be unset.  This function returns ``False`` in that case,
+          even if the terminal actually handles UTF-8.
+    """
+    for var in ("LC_ALL", "LC_CTYPE", "LANG"):
+        value = os.environ.get(var, "")
+        if value and "utf-8" in value.lower().replace("utf8", "utf-8"):
+            return True
+    return False
+
+
+def _detect_terminal_program() -> str | None:
+    """Identify the terminal emulator from environment variables.
+
+    Checks, in order: ``$TERM_PROGRAM``, ``$TERMINAL_EMULATOR``,
+    ``$WT_SESSION`` (Windows Terminal), and ``$KITTY_WINDOW_ID``
+    (kitty).
+
+    Caveats:
+        - These variables are set by the terminal emulator process and
+          are not standardised.  Inside ``tmux`` or ``screen``, they
+          may reflect the multiplexer rather than the outer terminal.
+        - ``$WT_SESSION`` is a GUID set by Windows Terminal.  Its
+          presence indicates Windows Terminal, but its value is opaque.
+        - ``$KITTY_WINDOW_ID`` is set by kitty.  It may coexist with
+          ``$TERM_PROGRAM`` (kitty sets both).  We check
+          ``$TERM_PROGRAM`` first, so kitty is typically identified
+          by that variable.
+        - Returns ``None`` if no known variable is set, which does
+          **not** mean the terminal is incapable — only unidentified.
+    """
+    term_program = os.environ.get("TERM_PROGRAM", "")
+    if term_program:
+        return term_program
+
+    terminal_emulator = os.environ.get("TERMINAL_EMULATOR", "")
+    if terminal_emulator:
+        return terminal_emulator
+
+    # Windows Terminal sets $WT_SESSION (a GUID) but not $TERM_PROGRAM.
+    if os.environ.get("WT_SESSION"):
+        return "Windows Terminal"
+
+    # kitty sets $KITTY_WINDOW_ID.
+    if os.environ.get("KITTY_WINDOW_ID"):
+        return "kitty"
+
+    return None
+
+
+def _detect_terminal_size() -> tuple[int, int]:
+    """Detect terminal dimensions (columns, rows).
+
+    Falls back to 80x24 if the size cannot be determined (e.g.,
+    stdout is not a TTY).
+
+    Caveats:
+        - ``os.get_terminal_size()`` queries the file descriptor
+          associated with stdout.  If stdout is redirected to a pipe
+          or file, this raises ``OSError`` and we fall back to 80x24.
+        - The ``$COLUMNS`` and ``$LINES`` environment variables are
+          **not** checked here.  ``os.get_terminal_size()`` reads the
+          kernel's terminal size (via ``ioctl TIOCGWINSZ`` on Unix or
+          ``GetConsoleScreenBufferInfo`` on Windows), which is more
+          reliable than shell-set variables.
+        - Terminal size can change at any time (user resizes the
+          window).  This function returns a point-in-time snapshot.
+          Use :class:`~wyby.resize.ResizeHandler` for ongoing resize
+          tracking.
+    """
+    try:
+        size = os.get_terminal_size()
+        return (size.columns, size.lines)
+    except OSError:
+        return (80, 24)
+
+
+def detect_capabilities() -> TerminalCapabilities:
+    """Probe the current terminal environment and return a capability snapshot.
+
+    Inspects environment variables (``$COLORTERM``, ``$TERM``,
+    ``$TERM_PROGRAM``, ``$LC_ALL``, ``$LC_CTYPE``, ``$LANG``),
+    checks whether stdout is a TTY, and queries terminal dimensions.
+
+    Returns:
+        A :class:`TerminalCapabilities` instance with all detected
+        values.  The result is a frozen snapshot — it does not track
+        subsequent environment changes.
+
+    Caveats:
+        - All detection is **best-effort** via environment variables
+          and OS APIs.  Terminals are not required to set any of these
+          variables, and some actively misrepresent their capabilities.
+        - This function does **not** send query escape sequences to the
+          terminal (e.g., ``\\e[c`` Device Attributes).  Such queries
+          are more accurate but require reading the terminal's response
+          from stdin, which conflicts with game input handling and is
+          not safe to do mid-session.
+        - For the most accurate colour detection, users should ensure
+          their terminal sets ``$COLORTERM=truecolor`` if it supports
+          24-bit colour.  Most modern terminals do this automatically.
+        - Call this function **before** entering the game loop to log
+          capabilities at startup.  Avoid calling it per-frame — it
+          reads environment variables and may call ``os.get_terminal_size()``
+          on each invocation.
+    """
+    colorterm = os.environ.get("COLORTERM", "")
+    term = os.environ.get("TERM", "")
+
+    color_support = _detect_color_support(colorterm, term)
+    utf8 = _detect_utf8()
+    is_tty = sys.stdout.isatty()
+    terminal_program = _detect_terminal_program()
+    columns, rows = _detect_terminal_size()
+
+    caps = TerminalCapabilities(
+        color_support=color_support,
+        utf8_supported=utf8,
+        is_tty=is_tty,
+        terminal_program=terminal_program,
+        columns=columns,
+        rows=rows,
+        colorterm_env=colorterm,
+        term_env=term,
+    )
+    _logger.debug("Detected terminal capabilities: %s", caps)
+    return caps
+
+
+# ---------------------------------------------------------------------------
+# FPS counter
+# ---------------------------------------------------------------------------
 
 # Sensible bounds for the rolling window size.
 _MIN_WINDOW_SIZE = 1
