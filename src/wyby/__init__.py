@@ -124,6 +124,7 @@ from wyby.widget import Widget
 from wyby.layout import Alignment, HBox, VBox
 from wyby.text_input import TextInput
 from wyby.cell_size_map import CellSizeMap
+from wyby.collision import AABB, aabb_overlap
 from wyby.font_variance import (
     DEFAULT_CELL_ASPECT_RATIO,
     FONT_VARIANCE_ISSUES,
@@ -277,4 +278,6 @@ __all__ = [
     "get_issues_for_terminal",
     "log_font_variance_warnings",
     "TextInput",
+    "AABB",
+    "aabb_overlap",
 ]
