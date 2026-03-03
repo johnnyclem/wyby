@@ -195,6 +195,18 @@ from wyby.controls_doc import (
     format_controls_reference,
     keys_by_category,
 )
+from wyby.api_reference import (
+    API_CAVEATS,
+    API_MODULES,
+    ApiCaveat,
+    ApiEntry,
+    ModuleInfo,
+    caveats_by_category as api_caveats_by_category,
+    format_api_caveats,
+    format_api_reference,
+    generate_api_reference,
+    modules_by_category,
+)
 
 # Attach a NullHandler so that wyby's internal log messages are silently
 # discarded unless the application (game) configures logging. This follows
@@ -373,4 +385,14 @@ __all__ = [
     "format_controls_doc",
     "format_controls_reference",
     "keys_by_category",
+    "API_CAVEATS",
+    "API_MODULES",
+    "ApiCaveat",
+    "ApiEntry",
+    "ModuleInfo",
+    "api_caveats_by_category",
+    "format_api_caveats",
+    "format_api_reference",
+    "generate_api_reference",
+    "modules_by_category",
 ]
