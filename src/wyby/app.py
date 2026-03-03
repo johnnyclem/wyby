@@ -30,6 +30,37 @@ Quit handling:
     Escape, ``q``) are pressed.  Until then, games should raise
     ``QuitSignal`` from their own input-checking logic.
 
+Graceful shutdown:
+    Regardless of *how* the engine stops — ``stop()``, Ctrl+C,
+    ``QuitSignal``, or an unhandled exception from game code — the
+    engine performs a cleanup pass before ``run()`` returns:
+
+    1. **Scene stack teardown** — every scene on the stack receives its
+       ``on_exit()`` hook (and registered exit callbacks) in top-to-
+       bottom order.  If an exit hook raises, the exception is logged
+       and remaining scenes still receive their hooks.
+    2. **Event queue flush** — pending events are discarded so stale
+       input does not leak into a subsequent ``run()`` call.
+
+    For expected exits (``stop()``, ``KeyboardInterrupt``,
+    ``QuitSignal``), ``run()`` returns normally.  For unexpected
+    exceptions from game code, cleanup still runs but the exception
+    re-raises after ``run()`` returns, so callers can observe it.
+
+    Caveats:
+        - Exit hooks run inside the ``finally`` block of ``run()``.
+          If a scene's ``on_exit()`` raises, the exception is logged at
+          WARNING level and swallowed so that subsequent scenes are not
+          deprived of their cleanup.  This means bugs in exit hooks are
+          *silent* unless logging is configured.
+        - The engine does **not** manage terminal state (alt-screen
+          buffer, cursor visibility).  Use :class:`AltScreen` as an
+          outer context manager to ensure the terminal is restored even
+          if the engine raises.
+        - If the engine is shut down by ``SIGKILL`` (``kill -9``),
+          neither ``_shutdown()`` nor ``__exit__`` will run.  This is
+          a fundamental OS limitation — ``SIGKILL`` cannot be caught.
+
 Caveats:
     - **Early implementation.** The scene stack and event queue are
       wired into the main loop, but the input layer (keyboard polling)
@@ -480,9 +511,18 @@ class Engine:
               sees a large wall-clock gap.  ``frame_time`` is clamped
               to ``_DT_CLAMP`` to prevent a burst of catch-up ticks.
             - ``KeyboardInterrupt`` and ``QuitSignal`` are both caught
-              and treated as a clean shutdown. Terminal-state cleanup
-              (e.g. restoring cursor visibility) will be added when
-              the renderer is implemented.
+              and treated as a clean shutdown.  Unhandled exceptions
+              from game code trigger the same cleanup but re-raise
+              after ``run()`` returns.
+            - **Graceful shutdown.** On any exit path, the engine
+              tears down the scene stack (firing ``on_exit`` hooks
+              top-to-bottom) and flushes the event queue.  If a
+              scene's exit hook raises, the exception is logged and
+              remaining scenes still receive their hooks.
+            - Terminal-state cleanup (e.g. restoring cursor
+              visibility, alt-screen buffer) is **not** managed by
+              the engine.  Wrap ``run()`` in an :class:`AltScreen`
+              context manager to ensure the terminal is restored.
             - Calling ``run()`` while the engine is already running has
               no effect; the call returns immediately.
         """
@@ -518,6 +558,7 @@ class Engine:
         except QuitSignal:
             _logger.debug("QuitSignal received, stopping engine")
         finally:
+            self._shutdown()
             self._running = False
             _logger.debug("Engine.run() finished")
 
@@ -600,6 +641,57 @@ class Engine:
         """
         _logger.debug("Engine.stop() called")
         self._running = False
+
+    def _shutdown(self) -> None:
+        """Clean up engine state during shutdown.
+
+        Called from the ``finally`` block of :meth:`run`.  Tears down
+        the scene stack (firing ``on_exit`` hooks) and flushes the event
+        queue so that stale state does not leak into a subsequent
+        ``run()`` call.
+
+        Exit hooks are invoked defensively: if a scene's ``on_exit()``
+        or a registered exit callback raises, the exception is logged
+        and remaining scenes still receive their hooks.
+
+        Caveats:
+            - Accesses ``_scene_stack._stack`` directly rather than
+              using :meth:`SceneStack.pop` because ``pop()`` calls
+              ``on_resume()`` on the new top scene, which is both
+              unnecessary during shutdown and could itself raise.
+            - If an exit hook raises, the exception is logged at
+              WARNING level (not re-raised).  This means bugs in exit
+              hooks are silent unless logging is configured — always
+              configure logging during development.
+            - Safe to call multiple times (idempotent).  A second call
+              after a clean shutdown is a no-op since the stack and
+              queue are already empty.
+        """
+        _logger.debug("Engine shutdown: cleaning up")
+
+        # Tear down scenes top-to-bottom.  We bypass SceneStack.pop()
+        # and SceneStack.clear() for two reasons:
+        # 1. pop() calls on_resume() on the new top, which is
+        #    pointless during shutdown and could raise.
+        # 2. clear() would propagate the first exception from
+        #    _fire_exit(), leaving remaining scenes uncleaned.
+        stack = self._scene_stack._stack
+        while stack:
+            scene = stack.pop()
+            try:
+                scene._fire_exit()
+            except Exception:
+                # Log and continue — one buggy exit hook must not
+                # prevent other scenes from cleaning up.
+                _logger.warning(
+                    "Exception in exit hook for %r during shutdown "
+                    "(remaining scenes will still be cleaned up)",
+                    type(scene).__name__,
+                    exc_info=True,
+                )
+
+        self._event_queue.clear()
+        _logger.debug("Engine shutdown complete")
 
     def _tick(self) -> None:
         """Execute one fixed-timestep update.

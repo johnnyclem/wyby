@@ -197,20 +197,28 @@ class TestTickDrainsEvents:
         assert queue_len_during_update == [0]
 
     def test_events_posted_during_update_survive(self) -> None:
-        """Events posted during update() should not be drained this tick."""
+        """Events posted during update() should not be drained this tick.
+
+        We verify this by checking the queue length during render(),
+        which runs after update() in the same tick.  After run()
+        returns the queue is empty because shutdown flushes it.
+        """
         engine = Engine()
+        queue_len_during_render: list[int] = []
 
         class PostingScene(Scene):
             def update(self_, dt: float) -> None:
                 engine.events.post(Event())
 
             def render(self_) -> None:
-                pass
+                queue_len_during_render.append(len(engine.events))
 
         engine.scenes.push(PostingScene())
         engine.run(loop=False)
-        # The event posted during update() should still be in the queue.
-        assert len(engine.events) == 1
+        # The event was still in the queue during render() (same tick).
+        assert queue_len_during_render == [1]
+        # After run() returns, shutdown has flushed the queue.
+        assert len(engine.events) == 0
 
 
 # ---------------------------------------------------------------------------
