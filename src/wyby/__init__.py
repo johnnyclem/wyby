@@ -68,6 +68,7 @@ from wyby.diagnostics import (
     RenderTimer,
     TerminalCapabilities,
     detect_capabilities,
+    detect_truecolor,
 )
 from wyby.event import Event, EventQueue
 from wyby.input import InputManager, InputMode, KeyEvent, MouseEvent, parse_input_events, parse_key_events
@@ -321,6 +322,7 @@ __all__ = [
     "configure_logging",
     "create_console",
     "detect_capabilities",
+    "detect_truecolor",
     "DoubleBuffer",
     "disable_alt_screen",
     "downgrade_color",

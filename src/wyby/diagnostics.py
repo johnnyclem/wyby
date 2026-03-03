@@ -433,6 +433,126 @@ def detect_capabilities() -> TerminalCapabilities:
 
 
 # ---------------------------------------------------------------------------
+# Truecolor detection
+# ---------------------------------------------------------------------------
+
+
+def _rich_detects_truecolor() -> bool:
+    """Ask Rich's Console whether it would use truecolor output.
+
+    Creates a temporary Console instance in auto-detection mode and
+    checks the resolved ``color_system``.  This captures Rich's own
+    heuristics, which inspect ``$COLORTERM``, ``$TERM``, known terminal
+    programs, and whether stdout is a TTY.
+
+    Caveats:
+        - Rich's detection overlaps with wyby's ``$COLORTERM`` check
+          but adds additional heuristics (e.g., it recognises specific
+          ``$TERM`` values and Windows Terminal).  The overlap is
+          intentional — this function serves as a **fallback** when
+          ``$COLORTERM`` is unset.
+        - Creating a Console has non-trivial cost (terminal size query,
+          environment variable reads).  Do not call per-frame.
+        - Rich may report ``color_system=None`` when stdout is not a
+          TTY (e.g., piped output, CI environments), even if the
+          terminal emulator supports truecolor.  This is correct
+          behaviour — no colour codes should be emitted to a pipe.
+        - Rich's detection is a point-in-time snapshot.  If the process
+          is moved between terminals (e.g., ``reptyr``), the cached
+          result will be stale.
+    """
+    try:
+        from rich.console import Console
+
+        # color_system="auto" triggers Rich's full detection logic.
+        # We avoid force_terminal=True so that pipe/non-TTY scenarios
+        # correctly return no truecolor.
+        console = Console(color_system="auto")
+        return console.color_system == "truecolor"
+    except Exception:
+        # Rich import failure or unexpected error — conservative default.
+        _logger.debug("Rich truecolor detection failed", exc_info=True)
+        return False
+
+
+def detect_truecolor() -> bool:
+    """Detect whether the current terminal supports truecolor (24-bit RGB).
+
+    Uses a two-tier strategy:
+
+    1. **Environment variable check** — inspects ``$COLORTERM`` for the
+       values ``"truecolor"`` or ``"24bit"``.  This is the de-facto
+       standard signal and is fast (no imports, no I/O).
+    2. **Rich Console detection** — if ``$COLORTERM`` is unset or does
+       not indicate truecolor, falls back to Rich's own terminal
+       capability detection.  Rich checks ``$COLORTERM``, ``$TERM``,
+       known terminal program identifiers, and Windows-specific APIs.
+
+    Returns:
+        ``True`` if the terminal is believed to support 24-bit colour,
+        ``False`` otherwise.
+
+    Example::
+
+        if detect_truecolor():
+            console = create_console(color_system="truecolor")
+        else:
+            console = create_console(color_system="auto")
+
+    Caveats:
+        - **No terminal query sequences are sent.**  The most reliable
+          way to detect truecolor is to send an OSC 4 or DA (Device
+          Attributes) escape sequence and read the terminal's response
+          from stdin.  This function deliberately avoids that approach
+          because: (a) it requires reading stdin, which conflicts with
+          game input handling in :mod:`wyby.input`; (b) it blocks
+          waiting for a response that some terminals never send;
+          (c) it can produce visible garbage if the terminal does not
+          recognise the query.  If you need query-based detection, do
+          it **before** entering the game loop and before
+          :class:`~wyby._platform.InputBackend` enters raw mode.
+        - **``$COLORTERM`` is not standardised.**  It is a de-facto
+          convention adopted by most modern terminal emulators (kitty,
+          iTerm2, WezTerm, GNOME Terminal, Windows Terminal, Alacritty).
+          Some terminals support truecolor but do not set this variable.
+          Users can fix this with ``export COLORTERM=truecolor`` in
+          their shell profile.
+        - **tmux/screen may mask truecolor support.**  Multiplexers
+          often override ``$TERM`` and may not pass through
+          ``$COLORTERM``.  Users should configure their multiplexer to
+          preserve ``$COLORTERM`` (e.g., ``set -ga terminal-overrides
+          ",*:Tc"`` in tmux) or set it inside the session.
+        - **Pipe/non-TTY contexts return ``False``.**  When stdout is
+          not a TTY (e.g., ``python game.py | cat``), Rich correctly
+          suppresses colour output and this function reports no
+          truecolor.  This is intentional — ANSI escape sequences
+          should not be written to non-terminal destinations.
+        - **False positives are possible.**  A terminal may claim
+          truecolor support via ``$COLORTERM`` but have buggy 24-bit
+          rendering (e.g., some older GNOME Terminal builds with
+          VTE < 0.36).  There is no reliable way to detect this without
+          visual inspection.
+        - **False negatives are more common than false positives.**  The
+          ``linux`` virtual console, older xterm configurations, and
+          some SSH setups genuinely lack truecolor.  But some capable
+          terminals simply do not set ``$COLORTERM``.  Rich's fallback
+          heuristics catch some of these cases but not all.
+        - **Call this at startup, not per-frame.**  Both the env-var
+          check and Rich's Console creation have non-trivial cost
+          relative to a frame budget.  Cache the result if needed.
+    """
+    colorterm = os.environ.get("COLORTERM", "").lower()
+    if colorterm in ("truecolor", "24bit"):
+        _logger.debug("Truecolor detected via $COLORTERM=%r", colorterm)
+        return True
+
+    # $COLORTERM not set or not a truecolor value — ask Rich.
+    result = _rich_detects_truecolor()
+    _logger.debug("Rich truecolor detection returned %s", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # FPS counter
 # ---------------------------------------------------------------------------
 
