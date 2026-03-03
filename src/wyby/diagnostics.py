@@ -1,4 +1,4 @@
-"""FPS counter, tick timing, and terminal capability reporting.
+"""FPS counter, render timing, and terminal capability reporting.
 
 This module provides diagnostic tools for measuring actual performance
 in a given terminal environment and detecting terminal capabilities.
@@ -7,6 +7,8 @@ The primary classes are:
 
 - :class:`FPSCounter` — tracks wall-clock tick intervals and computes
   smoothed FPS metrics over a rolling window.
+- :class:`RenderTimer` — tracks wall-clock duration of individual render
+  (``present()``) calls and computes rolling statistics.
 - :class:`ColorSupport` — enum representing the terminal's colour depth
   (none, standard 16-colour, 256-colour, or truecolor 24-bit).
 - :class:`TerminalCapabilities` — frozen snapshot of detected terminal
@@ -21,12 +23,14 @@ Caveats:
       size, and style complexity.  On a modern terminal with a modest grid,
       15–30 updates per second is realistic.  On Windows Console or over
       SSH, it may be significantly lower.
-    - FPS measurement tracks tick intervals, not actual Rich render calls
-      (the renderer is not yet connected).  Once the renderer is wired up,
-      a per-render measurement may be added for finer granularity.
-    - Do not use FPS numbers to promise performance to end users.  Terminal
-      rendering performance is inherently variable and outside the engine's
-      control.
+    - :class:`RenderTimer` measures wall-clock time spent inside
+      ``present()`` (Rich serialisation + terminal write).  It does **not**
+      capture terminal-side rendering time (glyph rasterisation, GPU
+      compositing, VSync).  The actual visible-frame latency is always
+      higher than the measured ``present()`` duration.
+    - Do not use FPS or render-time numbers to promise performance to end
+      users.  Terminal rendering performance is inherently variable and
+      outside the engine's control.
     - The rolling window introduces smoothing lag — at 30 tps with a
       60-sample window, it takes ~2 seconds before the average fully
       reflects a sustained change in frame rate.
@@ -622,5 +626,169 @@ class FPSCounter:
         return (
             f"FPSCounter(window_size={self._window_size}, "
             f"fps={self.fps:.1f}, "
+            f"samples={len(self._samples)})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Render timer
+# ---------------------------------------------------------------------------
+
+
+class RenderTimer:
+    """Tracks wall-clock duration of individual render calls.
+
+    Call :meth:`record` with the duration (in seconds) of each
+    ``Renderer.present()`` call.  The timer maintains a rolling window
+    of render durations and derives min/avg/max statistics.
+
+    This is the per-render complement to :class:`FPSCounter`, which
+    tracks tick-to-tick intervals.  Together they answer two different
+    questions:
+
+    - **FPSCounter**: "How many ticks per second is the loop achieving?"
+      (includes update logic, input handling, sleep, *and* rendering)
+    - **RenderTimer**: "How long does the ``present()`` call itself take?"
+      (only the Rich serialisation + terminal write)
+
+    Args:
+        window_size: Number of samples in the rolling window.  Larger
+            windows produce smoother averages but respond more slowly to
+            sustained changes.  Must be between 1 and 1000 inclusive.
+            Defaults to 60 (~2 seconds at 30 tps).
+
+    Raises:
+        TypeError: If *window_size* is not an integer.
+        ValueError: If *window_size* is outside the allowed range (1–1000).
+
+    Caveats:
+        - Measured duration covers ``Live.update()`` (Rich renderable
+          serialisation to ANSI escape sequences) and the synchronous
+          ``stdout.write()`` that follows.  It does **not** include
+          terminal-side processing (ANSI parsing, glyph rasterisation,
+          GPU compositing, VSync wait).  The actual time from
+          ``present()`` to pixels-on-screen is always higher.
+        - On terminals that buffer writes (most modern terminals), the
+          ``write()`` returns as soon as the data is in the kernel's
+          write buffer, not when the terminal has finished rendering.
+          Measured times therefore underestimate true render latency.
+        - ``time.perf_counter()`` is used for measurement.  On most
+          platforms this provides sub-microsecond resolution, but on
+          some older Windows builds the resolution is ~100 ns.  For
+          the millisecond-scale durations of typical render calls,
+          this is more than sufficient.
+        - Very short windows (1–5 samples) produce noisy statistics.
+          Very long windows (500+) are slow to reflect rate changes.
+          The default of 60 is a reasonable middle ground.
+        - Statistics are only meaningful after at least one sample has
+          been recorded.  All properties return ``0.0`` until then.
+    """
+
+    __slots__ = ("_window_size", "_samples", "_total_renders")
+
+    def __init__(self, window_size: int = _DEFAULT_WINDOW_SIZE) -> None:
+        if not isinstance(window_size, int) or isinstance(window_size, bool):
+            raise TypeError(
+                f"window_size must be an int, got {type(window_size).__name__}"
+            )
+        if not (_MIN_WINDOW_SIZE <= window_size <= _MAX_WINDOW_SIZE):
+            raise ValueError(
+                f"window_size must be between {_MIN_WINDOW_SIZE} and "
+                f"{_MAX_WINDOW_SIZE}, got {window_size}"
+            )
+
+        self._window_size = window_size
+        self._samples: collections.deque[float] = collections.deque(
+            maxlen=window_size,
+        )
+        self._total_renders: int = 0
+
+    @property
+    def window_size(self) -> int:
+        """Number of samples in the rolling window."""
+        return self._window_size
+
+    @property
+    def sample_count(self) -> int:
+        """Number of render-time samples currently stored."""
+        return len(self._samples)
+
+    @property
+    def total_renders(self) -> int:
+        """Total number of render calls recorded (including evicted samples)."""
+        return self._total_renders
+
+    @property
+    def last_render_ms(self) -> float:
+        """Most recent render call duration in milliseconds.
+
+        Returns ``0.0`` if no samples have been recorded.
+
+        Caveat: this is a single raw measurement that may be noisy due
+        to OS scheduling jitter, GC pauses, or terminal write buffering.
+        Use :attr:`avg_render_ms` for a smoothed metric.
+        """
+        if not self._samples:
+            return 0.0
+        return self._samples[-1] * 1000.0
+
+    @property
+    def avg_render_ms(self) -> float:
+        """Average render duration in milliseconds over the rolling window.
+
+        Returns ``0.0`` if no samples have been recorded.
+        """
+        if not self._samples:
+            return 0.0
+        return (sum(self._samples) / len(self._samples)) * 1000.0
+
+    @property
+    def min_render_ms(self) -> float:
+        """Minimum render duration in the current rolling window (ms).
+
+        Returns ``0.0`` if no samples have been recorded.
+        """
+        if not self._samples:
+            return 0.0
+        return min(self._samples) * 1000.0
+
+    @property
+    def max_render_ms(self) -> float:
+        """Maximum render duration in the current rolling window (ms).
+
+        Returns ``0.0`` if no samples have been recorded.
+
+        Caveat: a single slow render (e.g., GC pause during
+        serialisation, terminal write stall) can make this value
+        appear much higher than typical performance.
+        """
+        if not self._samples:
+            return 0.0
+        return max(self._samples) * 1000.0
+
+    def record(self, duration_s: float) -> None:
+        """Record a render call duration.
+
+        Args:
+            duration_s: Duration in seconds of the ``present()`` call,
+                measured with ``time.perf_counter()``.
+        """
+        self._samples.append(duration_s)
+        self._total_renders += 1
+
+    def reset(self) -> None:
+        """Clear all samples and reset the render count.
+
+        After calling ``reset()``, all properties return ``0.0`` until
+        new samples are recorded via :meth:`record`.
+        """
+        self._samples.clear()
+        self._total_renders = 0
+        _logger.debug("RenderTimer reset")
+
+    def __repr__(self) -> str:
+        return (
+            f"RenderTimer(window_size={self._window_size}, "
+            f"avg_ms={self.avg_render_ms:.2f}, "
             f"samples={len(self._samples)})"
         )

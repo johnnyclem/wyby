@@ -53,11 +53,13 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.live import Live
 
+from wyby.diagnostics import RenderTimer
 from wyby.render_warnings import log_render_cost
 
 if TYPE_CHECKING:
@@ -425,7 +427,7 @@ class Renderer:
           in their rendering logic.
     """
 
-    __slots__ = ("_live_display", "_frame_count")
+    __slots__ = ("_live_display", "_frame_count", "_render_timer")
 
     def __init__(self, console: Console | None = None) -> None:
         if console is not None and not isinstance(console, Console):
@@ -437,6 +439,7 @@ class Renderer:
         # one if None is passed, so we delegate directly.
         self._live_display = LiveDisplay(console=console)
         self._frame_count: int = 0
+        self._render_timer = RenderTimer()
 
     @property
     def console(self) -> Console:
@@ -473,6 +476,26 @@ class Renderer:
         """
         return self._frame_count
 
+    @property
+    def render_timer(self) -> RenderTimer:
+        """Per-frame render timing statistics.
+
+        The :class:`~wyby.diagnostics.RenderTimer` tracks how long each
+        :meth:`present` call takes (Rich serialisation + terminal write).
+        It is reset on each :meth:`start` call alongside :attr:`frame_count`.
+
+        Caveats:
+            - Measured time covers Python-side work only (Rich renderable
+              serialisation, ANSI string generation, ``stdout.write()``).
+              It does **not** include terminal-side processing (ANSI
+              parsing, glyph rasterisation, GPU compositing, VSync).
+            - On terminals that buffer writes, ``write()`` returns when
+              data enters the kernel buffer, not when the terminal has
+              finished rendering.  Measured times therefore underestimate
+              true render latency.
+        """
+        return self._render_timer
+
     def start(self) -> None:
         """Start the renderer and prepare for frame output.
 
@@ -496,6 +519,7 @@ class Renderer:
             )
             return
         self._frame_count = 0
+        self._render_timer.reset()
         self._live_display.start()
 
         # Log a flicker/latency warning if the console dimensions
@@ -590,7 +614,15 @@ class Renderer:
         """
         if not self._live_display.is_started:
             return
+        # Time the render call (Rich serialisation + terminal write).
+        # Uses time.perf_counter() for sub-ms resolution.  Note: this
+        # measures Python-side wall-clock time only — terminal-side
+        # rendering (ANSI parsing, rasterisation, compositing) happens
+        # after write() returns and is not captured here.
+        t0 = time.perf_counter()
         self._live_display.update(renderable)
+        t1 = time.perf_counter()
+        self._render_timer.record(t1 - t0)
         self._frame_count += 1
 
     def __enter__(self) -> Renderer:

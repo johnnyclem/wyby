@@ -85,7 +85,7 @@ if cost >= RenderCost.HEAVY:
     ...
 ```
 
-### 4. Profile with `FPSCounter`
+### 4. Profile with `FPSCounter` and `RenderTimer`
 
 Estimates are no substitute for measurement.  Enable the FPS counter
 and check actual throughput in the target environment:
@@ -96,6 +96,26 @@ engine = Engine(width=120, height=40, show_fps=True)
 if engine.fps_counter:
     print(f"Actual FPS: {engine.fps_counter.fps:.1f}")
 ```
+
+For finer granularity, the `Renderer` exposes a `RenderTimer` that
+tracks per-`present()` call duration:
+
+```python
+renderer = Renderer(console)
+with renderer:
+    renderer.present(buffer)
+    timer = renderer.render_timer
+    print(f"Last render: {timer.last_render_ms:.2f} ms")
+    print(f"Avg render:  {timer.avg_render_ms:.2f} ms")
+    print(f"Min render:  {timer.min_render_ms:.2f} ms")
+    print(f"Max render:  {timer.max_render_ms:.2f} ms")
+```
+
+**Caveat:** `RenderTimer` measures Python-side wall-clock time only
+(Rich serialisation + `stdout.write()`).  Terminal-side processing
+(ANSI parsing, glyph rasterisation, GPU compositing) happens after
+the write returns and is not captured.  Actual visible-frame latency
+is always higher than the reported render time.
 
 ### 5. Reduce TPS for Large Grids
 

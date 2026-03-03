@@ -43,6 +43,7 @@ from wyby.color import (
 from wyby.diagnostics import (
     ColorSupport,
     FPSCounter,
+    RenderTimer,
     TerminalCapabilities,
     detect_capabilities,
 )
@@ -94,6 +95,7 @@ __all__ = [
     "QuitSignal",
     "RenderCost",
     "Renderer",
+    "RenderTimer",
     "ResizeHandler",
     "Scene",
     "SceneStack",
