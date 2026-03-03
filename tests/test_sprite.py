@@ -67,11 +67,11 @@ class TestSpriteCharValidation:
             Sprite(42)  # type: ignore[arg-type]
 
     def test_rejects_empty_string(self) -> None:
-        with pytest.raises(ValueError, match="exactly one character"):
+        with pytest.raises(ValueError, match="must not be empty"):
             Sprite("")
 
     def test_rejects_multi_char_string(self) -> None:
-        with pytest.raises(ValueError, match="exactly one character"):
+        with pytest.raises(ValueError, match="single grapheme cluster"):
             Sprite("AB")
 
     def test_rejects_none_char(self) -> None:
@@ -130,12 +130,12 @@ class TestSpriteCharProperty:
 
     def test_set_rejects_empty(self) -> None:
         s = Sprite()
-        with pytest.raises(ValueError, match="exactly one character"):
+        with pytest.raises(ValueError, match="must not be empty"):
             s.char = ""
 
     def test_set_rejects_multi_char(self) -> None:
         s = Sprite()
-        with pytest.raises(ValueError, match="exactly one character"):
+        with pytest.raises(ValueError, match="single grapheme cluster"):
             s.char = "AB"
 
     def test_set_rejects_zero_width(self) -> None:

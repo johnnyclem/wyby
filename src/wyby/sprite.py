@@ -37,17 +37,29 @@ Usage::
     # → 12 entities, each a red "█" block
 
 Caveats:
-    - **Single character only.**  The ``char`` must be exactly one
-      Python character (one Unicode codepoint).  Multi-character strings
-      are rejected.  For multi-cell visuals, use multiple entities or
-      write directly to the :class:`~wyby.grid.CellBuffer`.
+    - **Single grapheme cluster only.**  The ``char`` must be exactly one
+      grapheme cluster — a single user-perceived character, which may
+      consist of one or more Unicode codepoints.  Multi-character strings
+      that form multiple grapheme clusters are rejected.  For multi-cell
+      visuals, use multiple entities or write directly to the
+      :class:`~wyby.grid.CellBuffer`.
+    - **Emoji with variation selectors are supported.**  Characters like
+      ``"❤\\uFE0F"`` (heart + VS16) and ``"⚔\\uFE0F"`` (swords + VS16) are
+      accepted as a single grapheme cluster.  VS16 (U+FE0F) requests
+      emoji presentation, which most modern terminals render at 2 columns
+      wide.  VS15 (U+FE0E) requests text presentation at 1 column.
+    - **Emoji width is terminal-dependent and unreliable.**  Different
+      terminals render emoji at different widths.  The width reported by
+      :func:`~wyby.unicode.grapheme_width` may not match what the user's
+      terminal actually displays.  Width mismatches cause column alignment
+      issues in the :class:`~wyby.grid.CellBuffer`.  Stick to ASCII and
+      simple Unicode for game tiles where alignment matters.  See
+      :mod:`wyby.unicode` for full caveats.
     - **Unicode width is not enforced.**  The char is stored as-is.
       Wide characters (CJK ideographs, fullwidth forms) occupy 2
       terminal cells but are stored as a single ``char``.  The
       renderer must account for display width via
-      :func:`~wyby.unicode.char_width`.  Emoji rendering is
-      terminal-dependent and unreliable — stick to ASCII and simple
-      Unicode for game tiles.  See :mod:`wyby.unicode` for details.
+      :func:`~wyby.unicode.grapheme_width`.
     - **Style is a Rich object.**  The ``style`` attribute is a
       :class:`rich.style.Style` instance.  Only ``color`` (foreground),
       ``bgcolor`` (background), ``bold``, and ``dim`` are used when
@@ -103,27 +115,37 @@ class Sprite(Component):
     :class:`~wyby.grid.CellBuffer`.
 
     Args:
-        char: A single character string.  Defaults to ``"@"``.
+        char: A single grapheme cluster string (one user-perceived
+            character, which may be multiple Unicode codepoints for
+            emoji with variation selectors).  Defaults to ``"@"``.
         style: A :class:`rich.style.Style` instance.  Defaults to
             ``Style.null()`` (no styling — terminal defaults).
 
     Raises:
         TypeError: If *char* is not a string.
-        ValueError: If *char* is not exactly one character long.
+        ValueError: If *char* is not a single grapheme cluster.
         TypeError: If *style* is not a :class:`rich.style.Style` instance.
 
     Caveats:
-        - **Single character only.**  Multi-character strings, empty
+        - **Single grapheme cluster only.**  Multi-cluster strings, empty
           strings, and non-string types are rejected.  For multi-cell
           visuals, use multiple entities or draw directly into the
           CellBuffer.
-        - **Zero-width characters are rejected.**  Combining marks,
+        - **Emoji with variation selectors are accepted.**  Characters
+          like ``"❤\\uFE0F"`` (heart + VS16) are valid — they form a
+          single grapheme cluster.  VS16 (U+FE0F) requests emoji
+          presentation, typically rendered at 2 columns wide.  However,
+          **emoji width is terminal-dependent** — the width reported by
+          :func:`~wyby.unicode.grapheme_width` may not match the
+          terminal's actual rendering.
+        - **Zero-width graphemes are rejected.**  Combining marks,
           control characters, and other zero-width codepoints cannot
           occupy a terminal cell and are not valid sprite characters.
         - **Wide characters are allowed but use 2 cells.**  CJK
-          ideographs and fullwidth forms are accepted as the char
-          value, but they occupy 2 terminal columns.  The renderer
-          must handle the extra width.  See :func:`~wyby.unicode.char_width`.
+          ideographs, fullwidth forms, and emoji with VS16 are accepted
+          as the char value, but they occupy 2 terminal columns.  The
+          renderer must handle the extra width.  See
+          :func:`~wyby.unicode.grapheme_width`.
         - **Only some Style attributes are rendered.**  The CellBuffer
           only supports ``color``, ``bgcolor``, ``bold``, and ``dim``.
           Other Rich Style attributes (italic, underline, blink,
@@ -148,15 +170,22 @@ class Sprite(Component):
             raise TypeError(
                 f"char must be a string, got {type(char).__name__}"
             )
-        if len(char) != 1:
-            raise ValueError(
-                f"char must be exactly one character, got {char!r} "
-                f"(length {len(char)})"
-            )
+        if len(char) == 0:
+            raise ValueError("char must not be empty")
+        # Accept single grapheme clusters (e.g. emoji + variation selector).
+        # Single codepoints are the common case and skip grapheme
+        # segmentation for performance.
+        if len(char) > 1:
+            from wyby.unicode import is_single_grapheme as _is_single_grapheme
+            if not _is_single_grapheme(char):
+                raise ValueError(
+                    f"char must be a single grapheme cluster, got {char!r} "
+                    f"(length {len(char)})"
+                )
 
-        # Reject zero-width characters — they can't occupy a cell.
-        from wyby.unicode import char_width as _char_width
-        if _char_width(char) == 0:
+        # Reject zero-width graphemes — they can't occupy a cell.
+        from wyby.unicode import grapheme_width as _grapheme_width
+        if _grapheme_width(char) == 0:
             raise ValueError(
                 f"char must have non-zero display width, got {char!r} "
                 f"(a zero-width character cannot occupy a terminal cell)"
@@ -188,13 +217,17 @@ class Sprite(Component):
             raise TypeError(
                 f"char must be a string, got {type(value).__name__}"
             )
-        if len(value) != 1:
-            raise ValueError(
-                f"char must be exactly one character, got {value!r} "
-                f"(length {len(value)})"
-            )
-        from wyby.unicode import char_width as _char_width
-        if _char_width(value) == 0:
+        if len(value) == 0:
+            raise ValueError("char must not be empty")
+        if len(value) > 1:
+            from wyby.unicode import is_single_grapheme as _is_single_grapheme
+            if not _is_single_grapheme(value):
+                raise ValueError(
+                    f"char must be a single grapheme cluster, got {value!r} "
+                    f"(length {len(value)})"
+                )
+        from wyby.unicode import grapheme_width as _grapheme_width
+        if _grapheme_width(value) == 0:
             raise ValueError(
                 f"char must have non-zero display width, got {value!r} "
                 f"(a zero-width character cannot occupy a terminal cell)"
@@ -294,10 +327,17 @@ def from_text(
           :class:`~wyby.grid.CellBuffer` via :meth:`~wyby.grid.CellBuffer.put_text`
           instead, and reserve ``from_text`` for small game objects
           (sprites, UI elements, decorations).
+        - **Emoji with variation selectors are supported.**  Characters
+          like ``"❤\\uFE0F"`` (heart + VS16) are treated as single grapheme
+          clusters and produce one entity each.  Emoji with VS16 advance
+          by 2 columns (emoji presentation width).  However, **emoji
+          width is terminal-dependent** — the width reported by
+          :func:`~wyby.unicode.grapheme_width` may not match what the
+          user's terminal actually displays.
         - **Zero-width characters are skipped.**  Combining marks, control
           characters, and other zero-width codepoints (as determined by
-          :func:`~wyby.unicode.char_width`) cannot occupy a terminal cell
-          and are silently skipped.  They will not produce entities.
+          :func:`~wyby.unicode.grapheme_width`) cannot occupy a terminal
+          cell and are silently skipped.  They will not produce entities.
         - **Wide characters (CJK) advance by 2 columns.**  A wide
           character placed at column *x* causes the next character to be
           placed at *x + 2*, matching how :meth:`~wyby.grid.CellBuffer.put_text`
@@ -343,22 +383,23 @@ def from_text(
         raise ValueError("text must not be empty or contain only whitespace")
 
     from wyby.entity import Entity as _Entity
-    from wyby.unicode import char_width as _char_width
+    from wyby.unicode import grapheme_width as _grapheme_width
+    from wyby.unicode import iter_grapheme_clusters as _iter_clusters
 
     entities: list[_Entity] = []
     lines = cleaned.split("\n")
 
     for row, line in enumerate(lines):
         col = 0
-        for char in line:
-            w = _char_width(char)
+        for grapheme in _iter_clusters(line):
+            w = _grapheme_width(grapheme)
 
-            # Skip zero-width characters — they can't fill a cell.
+            # Skip zero-width graphemes — they can't fill a cell.
             if w == 0:
                 continue
 
             # Skip spaces if requested.
-            if skip_whitespace and char == " ":
+            if skip_whitespace and grapheme == " ":
                 col += w
                 continue
 
@@ -366,7 +407,7 @@ def from_text(
                 x=origin_x + col,
                 y=origin_y + row,
             )
-            entity.add_component(Sprite(char, style))
+            entity.add_component(Sprite(grapheme, style))
             entities.append(entity)
 
             col += w
@@ -523,18 +564,23 @@ def from_image(
             f"origin_y must be an int, got {type(origin_y).__name__}"
         )
 
-    # Validate char.
+    # Validate char — accepts single grapheme clusters (e.g. emoji
+    # with variation selectors like "❤\uFE0F").
     if not isinstance(char, str):
         raise TypeError(
             f"char must be a string, got {type(char).__name__}"
         )
-    if len(char) != 1:
-        raise ValueError(
-            f"char must be exactly one character, got {char!r} "
-            f"(length {len(char)})"
-        )
-    from wyby.unicode import char_width as _char_width
-    if _char_width(char) == 0:
+    if len(char) == 0:
+        raise ValueError("char must not be empty")
+    if len(char) > 1:
+        from wyby.unicode import is_single_grapheme as _is_single_grapheme
+        if not _is_single_grapheme(char):
+            raise ValueError(
+                f"char must be a single grapheme cluster, got {char!r} "
+                f"(length {len(char)})"
+            )
+    from wyby.unicode import grapheme_width as _grapheme_width
+    if _grapheme_width(char) == 0:
         raise ValueError(
             f"char must have non-zero display width, got {char!r} "
             f"(a zero-width character cannot occupy a terminal cell)"

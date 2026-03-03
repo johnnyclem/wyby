@@ -56,11 +56,11 @@ class TestAnimationFrameValidation:
             AnimationFrame(42)  # type: ignore[arg-type]
 
     def test_rejects_empty_char(self) -> None:
-        with pytest.raises(ValueError, match="exactly one character"):
+        with pytest.raises(ValueError, match="must not be empty"):
             AnimationFrame("")
 
     def test_rejects_multi_char(self) -> None:
-        with pytest.raises(ValueError, match="exactly one character"):
+        with pytest.raises(ValueError, match="single grapheme cluster"):
             AnimationFrame("AB")
 
     def test_rejects_zero_width_char(self) -> None:

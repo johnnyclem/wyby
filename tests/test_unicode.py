@@ -629,13 +629,13 @@ class TestCellBufferFillUnicode:
 class TestUnicodeEdgeCases:
     """Edge cases for unicode rendering."""
 
-    def test_put_text_skips_zero_width_chars(self) -> None:
-        """Zero-width characters (combining marks) are silently skipped."""
+    def test_put_text_groups_combining_marks(self) -> None:
+        """Combining marks are grouped with their base as a grapheme cluster."""
         buf = CellBuffer(10, 1)
-        # U+0301 is combining acute accent (zero width)
+        # U+0301 is combining acute accent — grouped with 'A'
         buf.put_text(0, 0, "A\u0301B")
-        # 'A' at 0, combining mark skipped, 'B' at 1
-        assert buf.get(0, 0).char == "A"  # type: ignore[union-attr]
+        # 'A' + combining acute at 0 (grapheme cluster, width 1), 'B' at 1
+        assert buf.get(0, 0).char == "A\u0301"  # type: ignore[union-attr]
         assert buf.get(1, 0).char == "B"  # type: ignore[union-attr]
 
     def test_wide_char_at_negative_x(self) -> None:

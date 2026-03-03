@@ -77,7 +77,9 @@ class AnimationFrame:
     the frame should be displayed.
 
     Args:
-        char: A single character string for this frame.
+        char: A single grapheme cluster string for this frame (one
+            user-perceived character, which may be multiple codepoints
+            for emoji with variation selectors).
         style: Optional :class:`~rich.style.Style`.  If ``None``, the
             Sprite's current style is preserved when this frame is
             applied — only the character changes.
@@ -86,8 +88,8 @@ class AnimationFrame:
 
     Raises:
         TypeError: If *char* is not a string.
-        ValueError: If *char* is not exactly one character.
-        ValueError: If *char* is a zero-width character.
+        ValueError: If *char* is not a single grapheme cluster.
+        ValueError: If *char* is a zero-width grapheme.
         TypeError: If *style* is not a :class:`~rich.style.Style` or ``None``.
         TypeError: If *duration* is not a number.
         ValueError: If *duration* is not positive.
@@ -109,18 +111,23 @@ class AnimationFrame:
         style: Style | None = None,
         duration: float = 0.1,
     ) -> None:
-        # Validate char.
+        # Validate char — accepts single grapheme clusters (e.g. emoji
+        # with variation selectors like "❤\uFE0F").
         if not isinstance(char, str):
             raise TypeError(
                 f"char must be a string, got {type(char).__name__}"
             )
-        if len(char) != 1:
-            raise ValueError(
-                f"char must be exactly one character, got {char!r} "
-                f"(length {len(char)})"
-            )
-        from wyby.unicode import char_width as _char_width
-        if _char_width(char) == 0:
+        if len(char) == 0:
+            raise ValueError("char must not be empty")
+        if len(char) > 1:
+            from wyby.unicode import is_single_grapheme as _is_single_grapheme
+            if not _is_single_grapheme(char):
+                raise ValueError(
+                    f"char must be a single grapheme cluster, got {char!r} "
+                    f"(length {len(char)})"
+                )
+        from wyby.unicode import grapheme_width as _grapheme_width
+        if _grapheme_width(char) == 0:
             raise ValueError(
                 f"char must have non-zero display width, got {char!r} "
                 f"(a zero-width character cannot occupy a terminal cell)"

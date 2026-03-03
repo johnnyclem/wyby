@@ -338,6 +338,58 @@ def grapheme_width(grapheme: str) -> int:
     return 1
 
 
+def is_single_grapheme(text: str) -> bool:
+    """Return ``True`` if *text* is exactly one grapheme cluster.
+
+    A grapheme cluster is a user-perceived character that may consist of
+    one or more Unicode codepoints.  Single codepoints are trivially a
+    single grapheme cluster.  Multi-codepoint strings are segmented
+    using :func:`iter_grapheme_clusters` to determine if they form
+    exactly one cluster.
+
+    Common multi-codepoint grapheme clusters include:
+
+    - Emoji with variation selectors (e.g. ``"❤\\uFE0F"`` — heart + VS16)
+    - Base character + combining marks (e.g. ``"e\\u0301"`` — e + acute)
+    - Emoji ZWJ sequences (e.g. family emoji)
+    - Emoji with skin tone modifiers
+    - Regional indicator pairs (flag emoji)
+
+    Parameters
+    ----------
+    text : str
+        The string to check.
+
+    Returns
+    -------
+    bool
+        ``True`` if *text* contains exactly one grapheme cluster,
+        ``False`` if it is empty or contains multiple clusters.
+
+    Examples
+    --------
+    >>> is_single_grapheme("A")
+    True
+    >>> is_single_grapheme("❤\\uFE0F")  # heart + VS16
+    True
+    >>> is_single_grapheme("AB")
+    False
+    >>> is_single_grapheme("")
+    False
+    """
+    if not text:
+        return False
+    if len(text) == 1:
+        return True
+    # For multi-codepoint strings, segment into grapheme clusters.
+    count = 0
+    for _ in iter_grapheme_clusters(text):
+        count += 1
+        if count > 1:
+            return False
+    return count == 1
+
+
 def grapheme_string_width(text: str) -> int:
     """Return the total display width of *text* using grapheme clusters.
 

@@ -196,13 +196,13 @@ class TestFromTextWideChars:
 class TestFromTextZeroWidth:
     """Zero-width characters are silently skipped."""
 
-    def test_combining_mark_skipped(self) -> None:
-        # e + combining grave accent — the combining mark is skipped
+    def test_combining_mark_grouped_with_base(self) -> None:
+        # e + combining grave accent — forms one grapheme cluster "è"
         entities = from_text("e\u0300X")
         assert len(entities) == 2
-        assert entities[0].get_component(Sprite).char == "e"
+        assert entities[0].get_component(Sprite).char == "e\u0300"
         assert entities[1].get_component(Sprite).char == "X"
-        # X should be at col 1 (combining mark has width 0)
+        # "è" is width 1, so X is at col 1
         assert entities[1].x == 1
 
 

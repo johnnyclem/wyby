@@ -75,18 +75,18 @@ class TestCellCustomValues:
 
 
 class TestCellValidation:
-    """Cell.char must be exactly one character."""
+    """Cell.char must be a single grapheme cluster."""
 
     def test_rejects_empty_string(self) -> None:
-        with pytest.raises(ValueError, match="single character"):
+        with pytest.raises(ValueError, match="non-empty"):
             Cell(char="")
 
     def test_rejects_multi_char_string(self) -> None:
-        with pytest.raises(ValueError, match="single character"):
+        with pytest.raises(ValueError, match="single grapheme cluster"):
             Cell(char="AB")
 
     def test_rejects_non_string(self) -> None:
-        with pytest.raises(ValueError, match="single character"):
+        with pytest.raises(ValueError, match="non-empty"):
             Cell(char=42)  # type: ignore[arg-type]
 
 

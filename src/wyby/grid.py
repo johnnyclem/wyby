@@ -109,9 +109,21 @@ class Cell:
     dim: bool = False
 
     def __post_init__(self) -> None:
-        if not isinstance(self.char, str) or len(self.char) != 1:
-            msg = f"char must be a single character, got {self.char!r}"
+        if not isinstance(self.char, str) or len(self.char) == 0:
+            msg = f"char must be a non-empty string, got {self.char!r}"
             raise ValueError(msg)
+        # Multi-codepoint strings must be a single grapheme cluster
+        # (e.g. emoji + variation selector).  Single codepoints skip
+        # the grapheme check for performance — the common case in tight
+        # rendering loops.
+        if len(self.char) > 1:
+            from wyby.unicode import is_single_grapheme
+            if not is_single_grapheme(self.char):
+                msg = (
+                    f"char must be a single grapheme cluster, "
+                    f"got {self.char!r} (length {len(self.char)})"
+                )
+                raise ValueError(msg)
 
 
 def _default_cell() -> Cell:
@@ -234,32 +246,36 @@ class CellBuffer:
             - Zero-width characters (combining marks, control
               characters) are silently skipped.  They cannot be
               meaningfully placed in a cell grid.
-            - Emoji width is terminal-dependent.  Single-codepoint emoji
-              are treated as width 2 per UAX #11, but actual rendering
-              varies.  See :mod:`wyby.unicode` for details.
+            - Emoji with variation selectors (e.g. ``"❤\\uFE0F"``) are
+              handled as single grapheme clusters and placed in one cell.
+              VS16 (U+FE0F) triggers width 2 (emoji presentation).
+            - Emoji width is terminal-dependent.  Emoji with VS16 are
+              treated as width 2, but actual rendering varies across
+              terminals.  See :mod:`wyby.unicode` for details.
         """
-        from wyby.unicode import char_width as _char_width
+        from wyby.unicode import grapheme_width as _grapheme_width
+        from wyby.unicode import iter_grapheme_clusters as _iter_clusters
 
         col = x
-        for char in text:
-            w = _char_width(char)
+        for grapheme in _iter_clusters(text):
+            w = _grapheme_width(grapheme)
             if w == 0:
-                # Zero-width characters (combining marks, control chars)
+                # Zero-width graphemes (combining marks, control chars)
                 # cannot occupy a cell.  Skip them.
                 continue
             if w == 2:
-                # Wide character needs 2 columns.  If only one column
-                # remains before the right edge, skip the character
+                # Wide grapheme needs 2 columns.  If only one column
+                # remains before the right edge, skip the grapheme
                 # (we can't render half a wide char).
                 if 0 <= col < self._width and col + 1 >= self._width:
                     col += w
                     continue
-                self.put(col, y, Cell(char=char, fg=fg, bg=bg, bold=bold, dim=dim))
+                self.put(col, y, Cell(char=grapheme, fg=fg, bg=bg, bold=bold, dim=dim))
                 self.put(col + 1, y, Cell(
                     char=_WIDE_CHAR_FILLER, fg=None, bg=bg,
                 ))
             else:
-                self.put(col, y, Cell(char=char, fg=fg, bg=bg, bold=bold, dim=dim))
+                self.put(col, y, Cell(char=grapheme, fg=fg, bg=bg, bold=bold, dim=dim))
             col += w
 
     def draw_text(

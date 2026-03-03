@@ -300,12 +300,12 @@ class TestFromImageValidation:
 
     def test_rejects_multi_char(self) -> None:
         img = Image.new("RGB", (1, 1), color=(0, 0, 0))
-        with pytest.raises(ValueError, match="char must be exactly one"):
+        with pytest.raises(ValueError, match="single grapheme cluster"):
             from_image(img, char="##")
 
     def test_rejects_empty_char(self) -> None:
         img = Image.new("RGB", (1, 1), color=(0, 0, 0))
-        with pytest.raises(ValueError, match="char must be exactly one"):
+        with pytest.raises(ValueError, match="must not be empty"):
             from_image(img, char="")
 
     def test_rejects_zero_width_char(self) -> None:
