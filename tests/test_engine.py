@@ -1,6 +1,9 @@
-"""Tests for wyby.app — Engine class initialization."""
+"""Tests for wyby.app — Engine class."""
 
 from __future__ import annotations
+
+import logging
+import threading
 
 import pytest
 
@@ -232,3 +235,197 @@ class TestEngineImport:
         from wyby import Engine as EngineFromInit
 
         assert EngineFromInit is Engine
+
+
+# ---------------------------------------------------------------------------
+# running property
+# ---------------------------------------------------------------------------
+
+
+class TestEngineRunningProperty:
+    """Engine.running reflects the loop state."""
+
+    def test_not_running_after_construction(self) -> None:
+        engine = Engine()
+        assert engine.running is False
+
+    def test_not_running_after_single_tick(self) -> None:
+        engine = Engine()
+        engine.run(loop=False)
+        assert engine.running is False
+
+    def test_running_is_read_only(self) -> None:
+        engine = Engine()
+        with pytest.raises(AttributeError):
+            engine.running = True  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# run() with loop=False (single tick)
+# ---------------------------------------------------------------------------
+
+
+class TestEngineRunSingleTick:
+    """run(loop=False) should execute exactly one tick and return."""
+
+    def test_returns_without_error(self) -> None:
+        engine = Engine()
+        engine.run(loop=False)
+
+    def test_tick_is_called_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        engine = Engine()
+        tick_count = 0
+
+        original_tick = Engine._tick
+
+        def counting_tick(self: Engine) -> None:
+            nonlocal tick_count
+            tick_count += 1
+            original_tick(self)
+
+        monkeypatch.setattr(Engine, "_tick", counting_tick)
+        engine.run(loop=False)
+        assert tick_count == 1
+
+    def test_running_is_false_after_return(self) -> None:
+        engine = Engine()
+        engine.run(loop=False)
+        assert engine.running is False
+
+    def test_logs_start_and_finish(self, caplog: pytest.LogCaptureFixture) -> None:
+        engine = Engine()
+        with caplog.at_level(logging.DEBUG, logger="wyby.app"):
+            engine.run(loop=False)
+        messages = [r.message for r in caplog.records]
+        assert any("starting" in m and "loop=False" in m for m in messages)
+        assert any("finished" in m for m in messages)
+
+
+# ---------------------------------------------------------------------------
+# run() with loop=True (continuous loop)
+# ---------------------------------------------------------------------------
+
+
+class TestEngineRunLoop:
+    """run(loop=True) should loop until stop() is called."""
+
+    def test_stop_ends_loop(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        engine = Engine()
+        tick_count = 0
+
+        def stop_after_three(self_: Engine) -> None:
+            nonlocal tick_count
+            tick_count += 1
+            if tick_count >= 3:
+                self_.stop()
+
+        monkeypatch.setattr(Engine, "_tick", stop_after_three)
+        engine.run(loop=True)
+        assert tick_count == 3
+        assert engine.running is False
+
+    def test_stop_from_another_thread(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        engine = Engine()
+        tick_count = 0
+
+        def counting_tick(self_: Engine) -> None:
+            nonlocal tick_count
+            tick_count += 1
+
+        monkeypatch.setattr(Engine, "_tick", counting_tick)
+
+        def stop_soon() -> None:
+            # Give the loop a moment to start, then stop it.
+            while not engine.running:
+                pass
+            engine.stop()
+
+        t = threading.Thread(target=stop_soon)
+        t.start()
+        engine.run(loop=True)
+        t.join(timeout=2.0)
+        assert not t.is_alive()
+        assert engine.running is False
+        assert tick_count >= 1
+
+    def test_keyboard_interrupt_stops_loop(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        engine = Engine()
+        call_count = 0
+
+        def raise_on_second(self_: Engine) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise KeyboardInterrupt
+
+        monkeypatch.setattr(Engine, "_tick", raise_on_second)
+        # Should not raise — KeyboardInterrupt is caught internally.
+        engine.run(loop=True)
+        assert engine.running is False
+        assert call_count == 2
+
+    def test_keyboard_interrupt_logs_message(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        engine = Engine()
+
+        def raise_interrupt(self_: Engine) -> None:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(Engine, "_tick", raise_interrupt)
+        with caplog.at_level(logging.DEBUG, logger="wyby.app"):
+            engine.run(loop=True)
+        messages = [r.message for r in caplog.records]
+        assert any("KeyboardInterrupt" in m for m in messages)
+
+
+# ---------------------------------------------------------------------------
+# run() re-entrance guard
+# ---------------------------------------------------------------------------
+
+
+class TestEngineRunReentrance:
+    """Calling run() while already running should be a no-op."""
+
+    def test_reentrant_run_is_ignored(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        engine = Engine()
+        called_reentrant = False
+
+        def try_reentrant(self_: Engine) -> None:
+            nonlocal called_reentrant
+            # Attempt to call run() again from inside _tick.
+            self_.run(loop=False)
+            called_reentrant = True
+            self_.stop()
+
+        monkeypatch.setattr(Engine, "_tick", try_reentrant)
+        with caplog.at_level(logging.DEBUG, logger="wyby.app"):
+            engine.run(loop=True)
+        # The reentrant call should have returned immediately (no-op).
+        assert called_reentrant is True
+        messages = [r.message for r in caplog.records]
+        assert any("already running" in m for m in messages)
+
+
+# ---------------------------------------------------------------------------
+# stop() when not running
+# ---------------------------------------------------------------------------
+
+
+class TestEngineStop:
+    """stop() should be a harmless no-op when not running."""
+
+    def test_stop_when_not_running(self) -> None:
+        engine = Engine()
+        engine.stop()  # Should not raise.
+        assert engine.running is False

@@ -5,9 +5,9 @@ drive the fixed-timestep game loop: drain input -> update active scene ->
 render frame.
 
 Caveats:
-    - **Early implementation.** Only the ``Engine`` constructor is
-      functional. The game loop (``run()``) and scene management are not
-      yet implemented. See SCOPE.md for the intended design.
+    - **Early implementation.** The ``Engine`` constructor and a basic
+      ``run()`` loop are functional, but scene management, input, and
+      rendering are not yet connected. See SCOPE.md for the intended design.
     - The game loop will target ~30 ticks per second by default, but
       actual frame rate depends on terminal emulator, grid size, and style
       complexity. Do not assume 60 FPS — that is not a meaningful target
@@ -88,7 +88,7 @@ class Engine:
           the Linux virtual console).
     """
 
-    __slots__ = ("_title", "_width", "_height")
+    __slots__ = ("_title", "_width", "_height", "_running")
 
     def __init__(
         self,
@@ -126,6 +126,7 @@ class Engine:
         self._title = title
         self._width = width
         self._height = height
+        self._running = False
 
         _logger.debug(
             "Engine initialized: title=%r, width=%d, height=%d",
@@ -148,6 +149,73 @@ class Engine:
     def height(self) -> int:
         """Logical grid height in character cells."""
         return self._height
+
+    @property
+    def running(self) -> bool:
+        """Whether the engine's game loop is currently executing."""
+        return self._running
+
+    def run(self, *, loop: bool = True) -> None:
+        """Start the engine's main loop.
+
+        When *loop* is ``True`` (the default), the engine runs continuously
+        until stopped via :meth:`stop` or a ``KeyboardInterrupt`` (Ctrl+C).
+        When *loop* is ``False``, the engine executes exactly one iteration
+        of the game loop and returns — useful for testing and debugging.
+
+        Args:
+            loop: If ``True``, run the game loop until stopped. If ``False``,
+                execute a single tick and return.
+
+        Caveats:
+            - **No subsystems connected yet.** Each tick is currently a no-op
+              placeholder. Input polling, scene updates, and rendering will
+              be wired in by later tasks (see SCOPE.md).
+            - **No fixed timestep.** The loop does not yet sleep or pace
+              itself — ticks run as fast as Python allows, which will peg
+              one CPU core. Fixed-timestep timing (T015/T016) will add
+              proper sleep/catch-up logic.
+            - ``KeyboardInterrupt`` is caught and treated as a clean
+              shutdown. Terminal-state cleanup (e.g. restoring cursor
+              visibility) will be added when the renderer is implemented.
+            - Calling ``run()`` while the engine is already running has no
+              effect; the call returns immediately.
+        """
+        if self._running:
+            _logger.debug("Engine.run() called while already running, ignoring")
+            return
+
+        self._running = True
+        _logger.debug("Engine.run() starting (loop=%s)", loop)
+
+        try:
+            while self._running:
+                self._tick()
+                if not loop:
+                    break
+        except KeyboardInterrupt:
+            _logger.debug("KeyboardInterrupt received, stopping engine")
+        finally:
+            self._running = False
+            _logger.debug("Engine.run() finished")
+
+    def stop(self) -> None:
+        """Signal the engine to stop after the current tick completes.
+
+        This sets the internal running flag to ``False``. The game loop
+        will exit at the end of the current tick. Calling ``stop()`` when
+        the engine is not running is a harmless no-op.
+        """
+        _logger.debug("Engine.stop() called")
+        self._running = False
+
+    def _tick(self) -> None:
+        """Execute one iteration of the game loop.
+
+        Currently a no-op placeholder. Will eventually: drain input →
+        update active scene → render frame.
+        """
+        # Placeholder — subsystems (input, scene, renderer) not yet wired.
 
     def __repr__(self) -> str:
         return (
