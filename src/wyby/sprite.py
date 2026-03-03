@@ -4,10 +4,14 @@ Provides a :class:`Sprite` component that stores a character and a Rich
 :class:`~rich.style.Style`, defining how an entity looks when rendered
 into a :class:`~wyby.grid.CellBuffer`.
 
+Also provides :func:`from_text`, a factory function that converts
+multi-line ASCII art into positioned :class:`~wyby.entity.Entity`
+instances, each carrying a :class:`Sprite` component.
+
 Usage::
 
     from wyby.entity import Entity
-    from wyby.sprite import Sprite
+    from wyby.sprite import Sprite, from_text
     from rich.style import Style
 
     e = Entity(5, 3)
@@ -17,6 +21,10 @@ Usage::
     # Read back
     assert s.char == "@"
     assert s.style.color.name == "green"
+
+    # Load ASCII art as entities
+    entities = from_text("###\\n# #\\n###")
+    # → 8 entities (the spaces are skipped), positioned at grid coords
 
 Caveats:
     - **Single character only.**  The ``char`` must be exactly one
@@ -67,6 +75,7 @@ from wyby.component import Component
 
 if TYPE_CHECKING:
     from rich.style import Style
+    from wyby.entity import Entity
 
 _logger = logging.getLogger(__name__)
 
@@ -210,3 +219,149 @@ class Sprite(Component):
             else "detached"
         )
         return f"Sprite(char={self._char!r}, {entity_info})"
+
+
+def from_text(
+    text: str,
+    *,
+    origin_x: int = 0,
+    origin_y: int = 0,
+    style: Style | None = None,
+    skip_whitespace: bool = True,
+) -> list[Entity]:
+    """Create entities with Sprite components from a multi-line text block.
+
+    Each visible character in *text* becomes a separate
+    :class:`~wyby.entity.Entity` at the character's grid coordinates
+    (offset by *origin_x*, *origin_y*), with a :class:`Sprite` component
+    carrying that character and the given *style*.
+
+    This is the primary way to load ASCII art into a scene::
+
+        from wyby.sprite import from_text
+
+        entities = from_text(
+            "###\\n"
+            "# #\\n"
+            "###",
+            origin_x=5, origin_y=2,
+            style=Style(color="green"),
+        )
+        for e in entities:
+            scene.add_entity(e)
+
+    Args:
+        text: The text block to convert.  Lines are split on ``'\\n'``.
+            Carriage returns (``'\\r'``) are stripped.
+        origin_x: X offset added to every entity's x position.
+            Defaults to 0.
+        origin_y: Y offset added to every entity's y position.
+            Defaults to 0.
+        style: Optional :class:`~rich.style.Style` applied to every
+            Sprite.  Defaults to ``Style.null()`` (terminal defaults).
+        skip_whitespace: If ``True`` (the default), space characters
+            (``' '``) do not produce entities.  Set to ``False`` to
+            create entities for spaces (useful for opaque backgrounds
+            or overwriting underlying content).
+
+    Returns:
+        A list of :class:`~wyby.entity.Entity` instances, each with a
+        :class:`Sprite` component.  Entities are ordered top-to-bottom,
+        left-to-right (row 0 first, then row 1, etc.).  The list is
+        empty if the text contains no qualifying characters.
+
+    Raises:
+        TypeError: If *text* is not a string.
+        TypeError: If *origin_x* or *origin_y* is not an int.
+        ValueError: If *text* is empty or contains only whitespace.
+
+    Caveats:
+        - **Each character becomes a separate entity.**  A 10×5 block of
+          text can produce up to 50 entities.  For large ASCII art (maps,
+          backgrounds), this may be more entities than you want.  Consider
+          drawing large static text directly into the
+          :class:`~wyby.grid.CellBuffer` via :meth:`~wyby.grid.CellBuffer.put_text`
+          instead, and reserve ``from_text`` for small game objects
+          (sprites, UI elements, decorations).
+        - **Zero-width characters are skipped.**  Combining marks, control
+          characters, and other zero-width codepoints (as determined by
+          :func:`~wyby.unicode.char_width`) cannot occupy a terminal cell
+          and are silently skipped.  They will not produce entities.
+        - **Wide characters (CJK) advance by 2 columns.**  A wide
+          character placed at column *x* causes the next character to be
+          placed at *x + 2*, matching how :meth:`~wyby.grid.CellBuffer.put_text`
+          handles wide characters.  The entity's ``x`` position reflects
+          the character's left column.
+        - **Tab characters are not expanded.**  Tabs (``'\\t'``) are
+          treated as single characters.  If your text contains tabs,
+          expand them to spaces before calling ``from_text``
+          (e.g. ``text.expandtabs(4)``).
+        - **Trailing whitespace matters.**  Lines are not stripped.  If a
+          line has trailing spaces and *skip_whitespace* is ``False``,
+          those spaces become entities.  Use ``textwrap.dedent`` and
+          ``str.strip`` to normalise indentation if needed.
+        - **Entities have auto-assigned IDs.**  Each entity gets a unique
+          ID from the module-level counter.  IDs are not deterministic
+          across calls — if you need stable IDs (for save/load), assign
+          them explicitly after creation.
+        - **No built-in per-character styling.**  All entities share the
+          same *style*.  For multi-colour ASCII art, call ``from_text``
+          once per colour region, or modify individual Sprite styles after
+          creation.
+        - **Newline handling.**  Only ``'\\n'`` is recognised as a line
+          separator.  ``'\\r\\n'`` (Windows) is handled by stripping
+          ``'\\r'``.  Bare ``'\\r'`` (old Mac) is also stripped, but does
+          not act as a line separator on its own.
+    """
+    if not isinstance(text, str):
+        raise TypeError(
+            f"text must be a string, got {type(text).__name__}"
+        )
+    if not isinstance(origin_x, int) or isinstance(origin_x, bool):
+        raise TypeError(
+            f"origin_x must be an int, got {type(origin_x).__name__}"
+        )
+    if not isinstance(origin_y, int) or isinstance(origin_y, bool):
+        raise TypeError(
+            f"origin_y must be an int, got {type(origin_y).__name__}"
+        )
+
+    # Strip carriage returns for cross-platform compatibility.
+    cleaned = text.replace("\r", "")
+    if not cleaned or cleaned.isspace():
+        raise ValueError("text must not be empty or contain only whitespace")
+
+    from wyby.entity import Entity as _Entity
+    from wyby.unicode import char_width as _char_width
+
+    entities: list[_Entity] = []
+    lines = cleaned.split("\n")
+
+    for row, line in enumerate(lines):
+        col = 0
+        for char in line:
+            w = _char_width(char)
+
+            # Skip zero-width characters — they can't fill a cell.
+            if w == 0:
+                continue
+
+            # Skip spaces if requested.
+            if skip_whitespace and char == " ":
+                col += w
+                continue
+
+            entity = _Entity(
+                x=origin_x + col,
+                y=origin_y + row,
+            )
+            entity.add_component(Sprite(char, style))
+            entities.append(entity)
+
+            col += w
+
+    _logger.debug(
+        "from_text created %d entities from %d lines",
+        len(entities), len(lines),
+    )
+    return entities
