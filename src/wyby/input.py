@@ -15,9 +15,15 @@ Library choice — stdin via termios/msvcrt (not ``keyboard``):
        hooks that capture keystrokes from *all* applications, not just
        the terminal running the game.  This is inappropriate for a
        game framework.
-    2. **Root/admin required on Linux.**  ``keyboard`` needs
-       ``/dev/input`` access, which typically requires root.  Terminal
-       games should not need elevated privileges.
+    2. **Root/sudo required on Linux.**  On Linux, ``keyboard`` reads
+       raw input events from ``/dev/input/event*`` device files (the
+       evdev interface).  These files are owned by ``root:input`` with
+       mode ``0660``.  Without elevated privileges, the library raises
+       ``PermissionError``.  Users must either run with ``sudo`` or
+       add themselves to the ``input`` group — both grant access to
+       *all* input devices system-wide, which is a serious security
+       escalation for a terminal game.  See ``_platform.py`` for
+       full details.
     3. **Security concerns.**  A library that can see every keystroke
        system-wide is a keylogger by design.  Even if used benignly,
        bundling it raises trust issues for end users.
@@ -52,10 +58,12 @@ Caveats:
       mode via ``termios`` is used; on Windows, ``msvcrt.kbhit()`` /
       ``msvcrt.getwch()``.  Behaviour differs in key representation
       and timing between platforms.
-    - The ``keyboard`` library is **explicitly excluded**.  It installs
-      system-wide hooks, requires root/admin on Linux, captures input
-      from all applications, and raises security concerns.  wyby only
-      reads from its own terminal's stdin.
+    - The ``keyboard`` library is **explicitly excluded**.  On Linux it
+      requires root/sudo to access ``/dev/input`` device files; on all
+      platforms it installs system-wide hooks that capture input from
+      every application.  wyby reads only from its own stdin and never
+      requires elevated privileges.  See the "Library choice" section
+      above and ``_platform.py`` for full rationale.
     - Mouse support is not included in v0.1.  Some terminals support
       mouse reporting via escape sequences, but coverage is
       inconsistent.

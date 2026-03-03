@@ -15,6 +15,45 @@ On Windows:
     mode switching is needed because ``msvcrt`` operates at a lower
     level than the console line editor.
 
+Why not the ``keyboard`` library (Linux sudo requirement):
+    The third-party ``keyboard`` library
+    (https://pypi.org/project/keyboard/) uses a fundamentally different
+    mechanism on Linux: it opens ``/dev/input/event*`` device files to
+    read raw evdev events at the OS level.  These device files are
+    owned by ``root:input`` with mode ``0660``, so accessing them
+    requires either:
+
+    - Running the process as **root** (``sudo python my_game.py``), or
+    - Adding the user to the ``input`` group (``sudo usermod -aG input $USER``),
+      which grants access to **all** input devices (keyboards, mice,
+      joysticks) for **all** applications — a significant security
+      escalation.
+
+    This is a hard requirement of the library's design, not a bug.  On
+    Linux, ``keyboard`` hooks into the kernel input subsystem via
+    ``/dev/input``, which is a privileged operation.  Without elevated
+    access, ``keyboard.on_press()`` and similar calls raise
+    ``PermissionError`` or silently fail.
+
+    Additional issues with the ``keyboard`` library on Linux:
+
+    - **System-wide capture**: reads keystrokes from *all* applications,
+      not just the terminal running the game.  A game should never
+      intercept passwords or other sensitive input from other windows.
+    - **Keylogger semantics**: even if used benignly, the ``/dev/input``
+      mechanism is identical to how keyloggers work.  Bundling a library
+      that requires root to read all keystrokes raises trust concerns.
+    - **No terminal integration**: bypasses the terminal entirely, so it
+      cannot distinguish between terminals when multiple are open and
+      does not work with ``tmux``/``screen`` multiplexers.
+    - **Broken in containers/SSH**: Docker containers and SSH sessions
+      typically do not expose ``/dev/input``, so ``keyboard`` fails in
+      common deployment environments.
+
+    wyby avoids all of these issues by reading only from the process's
+    own stdin using ``termios`` (Unix) / ``msvcrt`` (Windows).  No
+    elevated privileges are required on any platform.
+
 Caveats:
     - This module is internal (prefixed with ``_``).  Game code should
       use the public API in ``wyby.input``, not import from here
@@ -273,6 +312,10 @@ if sys.platform == "win32":
 
 def create_backend() -> InputBackend:
     """Create the appropriate input backend for the current platform.
+
+    No elevated privileges (sudo/root) are required on any platform.
+    The returned backend reads only from the process's own stdin —
+    it never accesses ``/dev/input`` or installs system-wide hooks.
 
     Returns:
         A :class:`UnixInputBackend` on Unix-like systems or a
