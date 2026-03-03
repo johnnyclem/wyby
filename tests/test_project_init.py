@@ -1,4 +1,4 @@
-"""Tests for wyby.project_init — git, .gitignore, pyproject.toml, pre-commit config, and LICENSE initialisation."""
+"""Tests for wyby.project_init — git, .gitignore, pyproject.toml, pre-commit config, LICENSE, and CONTRIBUTING.md initialisation."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from wyby.project_init import (
+    CONTRIBUTING_TEMPLATE,
     GITIGNORE_TEMPLATE,
     MIT_LICENSE_TEMPLATE,
     PRECOMMIT_CONFIG_TEMPLATE,
@@ -16,6 +17,7 @@ from wyby.project_init import (
     GitError,
     GitNotFoundError,
     _normalise_project_name,
+    create_contributing_md,
     create_gitignore,
     create_license_file,
     create_precommit_config,
@@ -573,6 +575,148 @@ class TestCreateLicenseFile:
 
 
 # ---------------------------------------------------------------------------
+# create_contributing_md
+# ---------------------------------------------------------------------------
+
+
+class TestCreateContributingMd:
+    """Tests for create_contributing_md()."""
+
+    def test_creates_file_in_existing_dir(self, tmp_path: Path) -> None:
+        result = create_contributing_md(tmp_path, "mygame")
+        contributing_path = tmp_path / "CONTRIBUTING.md"
+
+        assert result == contributing_path
+        assert contributing_path.exists()
+
+    def test_content_includes_project_name(self, tmp_path: Path) -> None:
+        create_contributing_md(tmp_path, "mygame")
+        content = (tmp_path / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+        assert "# Contributing to mygame" in content
+        assert "**mygame**" in content
+
+    def test_content_includes_caveats_section(self, tmp_path: Path) -> None:
+        create_contributing_md(tmp_path, "mygame")
+        content = (tmp_path / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+        assert "## Caveats" in content
+
+    def test_caveats_mention_pre_release(self, tmp_path: Path) -> None:
+        create_contributing_md(tmp_path, "mygame")
+        content = (tmp_path / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+        assert "pre-release" in content
+
+    def test_caveats_mention_licensing(self, tmp_path: Path) -> None:
+        create_contributing_md(tmp_path, "mygame")
+        content = (tmp_path / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+        assert "GPL-3.0" in content
+        assert "MIT" in content
+
+    def test_caveats_mention_python_version(self, tmp_path: Path) -> None:
+        create_contributing_md(tmp_path, "mygame")
+        content = (tmp_path / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+        assert "Python >= 3.10" in content
+
+    def test_caveats_mention_no_pickle(self, tmp_path: Path) -> None:
+        create_contributing_md(tmp_path, "mygame")
+        content = (tmp_path / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+        assert "pickle" in content
+
+    def test_caveats_mention_no_networking(self, tmp_path: Path) -> None:
+        create_contributing_md(tmp_path, "mygame")
+        content = (tmp_path / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+        assert "networking" in content.lower()
+
+    def test_content_includes_setup_instructions(self, tmp_path: Path) -> None:
+        create_contributing_md(tmp_path, "mygame")
+        content = (tmp_path / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+        assert "## Getting Started" in content
+        assert "pip install -e ." in content
+        assert "pre-commit install" in content
+
+    def test_content_includes_test_instructions(self, tmp_path: Path) -> None:
+        create_contributing_md(tmp_path, "mygame")
+        content = (tmp_path / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+        assert "## Running Tests" in content
+        assert "pytest" in content
+
+    def test_content_includes_code_style_section(self, tmp_path: Path) -> None:
+        create_contributing_md(tmp_path, "mygame")
+        content = (tmp_path / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+        assert "## Code Style" in content
+        assert "ruff" in content
+
+    def test_name_is_normalised_to_lowercase(self, tmp_path: Path) -> None:
+        create_contributing_md(tmp_path, "MyGame")
+        content = (tmp_path / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+        assert "# Contributing to mygame" in content
+
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        target = tmp_path / "a" / "b"
+        result = create_contributing_md(target, "mygame")
+
+        assert result.exists()
+        assert target.is_dir()
+
+    def test_refuses_to_overwrite_by_default(self, tmp_path: Path) -> None:
+        (tmp_path / "CONTRIBUTING.md").write_text("custom content")
+
+        with pytest.raises(FileExistsError, match="already exists"):
+            create_contributing_md(tmp_path, "mygame")
+
+    def test_existing_content_preserved_when_not_overwriting(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "CONTRIBUTING.md").write_text("custom content")
+
+        with pytest.raises(FileExistsError):
+            create_contributing_md(tmp_path, "mygame")
+
+        assert (tmp_path / "CONTRIBUTING.md").read_text() == "custom content"
+
+    def test_overwrite_replaces_content(self, tmp_path: Path) -> None:
+        (tmp_path / "CONTRIBUTING.md").write_text("old content")
+        create_contributing_md(tmp_path, "mygame", overwrite=True)
+
+        content = (tmp_path / "CONTRIBUTING.md").read_text(encoding="utf-8")
+        assert "# Contributing to mygame" in content
+        assert "old content" not in content
+
+    def test_invalid_name_raises_value_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="Invalid project name"):
+            create_contributing_md(tmp_path, "my game!")
+
+    def test_empty_name_raises_value_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="must not be empty"):
+            create_contributing_md(tmp_path, "")
+
+    def test_template_includes_caveat_comments(self) -> None:
+        """The template should include caveats about pre-release and licensing."""
+        assert "pre-release" in CONTRIBUTING_TEMPLATE
+        assert "GPL-3.0" in CONTRIBUTING_TEMPLATE
+
+    def test_logs_info_on_success(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        with caplog.at_level(logging.INFO):
+            create_contributing_md(tmp_path, "mygame")
+
+        assert any("Created CONTRIBUTING.md" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
 # init_project
 # ---------------------------------------------------------------------------
 
@@ -580,7 +724,9 @@ class TestCreateLicenseFile:
 class TestInitProject:
     """Tests for init_project() — the convenience wrapper."""
 
-    def test_creates_repo_gitignore_pyproject_and_license(self, tmp_path: Path) -> None:
+    def test_creates_repo_gitignore_pyproject_license_and_contributing(
+        self, tmp_path: Path
+    ) -> None:
         target = tmp_path / "game"
         result = init_project(target)
 
@@ -590,6 +736,7 @@ class TestInitProject:
         assert (target / "pyproject.toml").exists()
         assert (target / ".pre-commit-config.yaml").exists()
         assert (target / "LICENSE").exists()
+        assert (target / "CONTRIBUTING.md").exists()
 
     def test_gitignore_has_correct_content(self, tmp_path: Path) -> None:
         target = tmp_path / "game"
@@ -703,6 +850,40 @@ class TestInitProject:
 
         content = (target / "LICENSE").read_text(encoding="utf-8")
         assert "MIT License" in content
+
+    def test_contributing_has_project_name(self, tmp_path: Path) -> None:
+        target = tmp_path / "mygame"
+        init_project(target)
+
+        content = (target / "CONTRIBUTING.md").read_text(encoding="utf-8")
+        assert "# Contributing to mygame" in content
+
+    def test_contributing_uses_explicit_project_name(self, tmp_path: Path) -> None:
+        target = tmp_path / "somedir"
+        init_project(target, "cool-game")
+
+        content = (target / "CONTRIBUTING.md").read_text(encoding="utf-8")
+        assert "# Contributing to cool-game" in content
+
+    def test_refuses_overwrite_contributing_by_default(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        target.mkdir()
+        subprocess.run(["git", "init", str(target)], check=True, capture_output=True)
+        (target / "CONTRIBUTING.md").write_text("custom")
+
+        with pytest.raises(FileExistsError):
+            init_project(target)
+
+    def test_overwrite_contributing_flag(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        target.mkdir()
+        subprocess.run(["git", "init", str(target)], check=True, capture_output=True)
+        (target / "CONTRIBUTING.md").write_text("custom")
+
+        init_project(target, overwrite_contributing=True)
+
+        content = (target / "CONTRIBUTING.md").read_text(encoding="utf-8")
+        assert "# Contributing to game" in content
 
     def test_git_not_found_propagates(self, tmp_path: Path) -> None:
         with patch("wyby.project_init.shutil.which", return_value=None):

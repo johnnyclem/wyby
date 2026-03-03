@@ -1,10 +1,10 @@
-"""Utilities for initializing a wyby game project with git, .gitignore, pyproject.toml, pre-commit config, and LICENSE.
+"""Utilities for initializing a wyby game project with git, .gitignore, pyproject.toml, pre-commit config, LICENSE, and CONTRIBUTING.md.
 
 This module provides functions to scaffold a new wyby game project directory
 with a git repository, a .gitignore tailored for Python-based terminal
 game development, a ``pyproject.toml`` declaring the project's metadata
 and dependencies, a ``.pre-commit-config.yaml`` for code-quality hooks,
-and an MIT ``LICENSE`` file.
+an MIT ``LICENSE`` file, and a ``CONTRIBUTING.md`` guide.
 
 Caveats:
     - Requires ``git`` to be installed and available on the system PATH.
@@ -49,6 +49,14 @@ Caveats:
       itself is GPL-3.0-only — the MIT license is for game projects
       built *with* wyby, not for wyby itself. Game developers are free
       to choose any license compatible with GPL-3.0 for their projects.
+    - The generated ``CONTRIBUTING.md`` provides generic contribution
+      guidelines for a wyby game project. It references tooling set up
+      by other scaffolding functions (pytest, ruff, pre-commit) so it
+      should be generated *after* the rest of the project is in place.
+      The file includes a caveats section highlighting wyby's pre-release
+      status. Game projects with specialised contribution workflows
+      (e.g. asset pipelines, playtesting protocols) should extend the
+      file to cover those areas.
 """
 
 from __future__ import annotations
@@ -243,6 +251,101 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+"""
+
+
+# CONTRIBUTING.md template for wyby game projects.
+#
+# Caveats:
+# - The guide assumes the project was scaffolded with wyby's init_project()
+#   and therefore has pyproject.toml, .pre-commit-config.yaml, and a src
+#   layout. Projects with a non-standard setup should adjust accordingly.
+# - The "Caveats" section in the generated file warns contributors about
+#   wyby's pre-release status and the implications for API stability.
+# - The file references `pip install pre-commit` and `pre-commit install`.
+#   pre-commit is NOT a wyby dependency — contributors must install it
+#   separately if they want to use the hooks.
+# - The project name placeholder {project_name} is filled at generation
+#   time. If the project is later renamed, the CONTRIBUTING.md must be
+#   updated manually.
+CONTRIBUTING_TEMPLATE = """\
+# Contributing to {project_name}
+
+Thank you for considering contributing to **{project_name}**! This document
+explains how to set up a development environment and submit changes.
+
+## Getting Started
+
+1. **Clone the repository**
+
+   ```bash
+   git clone <repository-url>
+   cd {project_name}
+   ```
+
+2. **Create a virtual environment**
+
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate   # Linux / macOS
+   .venv\\\\Scripts\\\\activate      # Windows
+   ```
+
+3. **Install in editable mode with dev dependencies**
+
+   ```bash
+   pip install -e .
+   ```
+
+4. **Install pre-commit hooks** *(optional but recommended)*
+
+   ```bash
+   pip install pre-commit
+   pre-commit install
+   ```
+
+## Running Tests
+
+```bash
+pytest
+```
+
+## Code Style
+
+This project uses [ruff](https://docs.astral.sh/ruff/) for linting and
+formatting. If you installed the pre-commit hooks, ruff runs automatically
+on every commit. You can also run it manually:
+
+```bash
+ruff check src/ tests/
+ruff format src/ tests/
+```
+
+## Submitting Changes
+
+1. Create a branch for your change.
+2. Write tests for new functionality.
+3. Make sure all tests pass and ruff reports no issues.
+4. Open a pull request with a clear description of the change.
+
+## Caveats
+
+- **wyby is pre-release software.** The framework API may change without
+  notice before version 1.0. If your contribution depends on wyby
+  internals, be aware that those interfaces are not yet stable.
+- **Licensing.** This project is licensed under MIT (see `LICENSE`), but
+  wyby itself is GPL-3.0-only. Contributions to this game project are
+  covered by the project's own license, not wyby's. If you copy code
+  *from* wyby into this project, the GPL terms apply to that code.
+- **Python version.** wyby requires Python >= 3.10. Do not use syntax or
+  standard-library features that require a newer version unless the
+  project's `requires-python` has been updated accordingly.
+- **Save-file format.** wyby does not use pickle. If your contribution
+  involves save/load functionality, use explicit serialisation
+  (`to_save_data()` / `from_save_data()`) with JSON or msgpack.
+- **No networking in MVP.** wyby's first release will not include
+  networking support. Contributions that add multiplayer or online
+  features should be discussed in an issue first.
 """
 
 
@@ -550,6 +653,61 @@ def create_license_file(
     return license_path
 
 
+def create_contributing_md(
+    path: str | Path,
+    project_name: str,
+    *,
+    overwrite: bool = False,
+) -> Path:
+    """Write a ``CONTRIBUTING.md`` file for a wyby game project.
+
+    The template provides setup instructions, testing and code-style
+    guidance, and a caveats section highlighting wyby's pre-release
+    status and licensing considerations.
+
+    Args:
+        path: Directory in which to create ``CONTRIBUTING.md``.
+        project_name: Name of the project. Must be a valid PEP 508
+            name. Will be normalised to lowercase.
+        overwrite: If ``True``, replace an existing ``CONTRIBUTING.md``.
+            Defaults to ``False`` to avoid discarding user edits.
+
+    Returns:
+        The ``Path`` of the written ``CONTRIBUTING.md`` file.
+
+    Raises:
+        ValueError: If *project_name* is empty or contains invalid characters.
+        FileExistsError: If ``CONTRIBUTING.md`` already exists and
+            *overwrite* is ``False``.
+
+    Caveats:
+        - The generated file assumes the project was scaffolded with
+          wyby's ``init_project()`` (src layout, pyproject.toml,
+          pre-commit config). Adjust if using a non-standard setup.
+        - The caveats section warns contributors about wyby's
+          pre-release API instability and GPL-3.0 licensing of wyby
+          itself versus the game project's own license.
+        - The file references ``pip install pre-commit`` — pre-commit
+          is not a wyby dependency and must be installed separately.
+    """
+    normalised = _normalise_project_name(project_name)
+
+    target_dir = Path(path).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    contributing_path = target_dir / "CONTRIBUTING.md"
+
+    if contributing_path.exists() and not overwrite:
+        raise FileExistsError(
+            f"CONTRIBUTING.md already exists at {contributing_path}. "
+            "Pass overwrite=True to replace it."
+        )
+
+    content = CONTRIBUTING_TEMPLATE.format(project_name=normalised)
+    contributing_path.write_text(content, encoding="utf-8")
+    logger.info("Created CONTRIBUTING.md at %s", contributing_path)
+    return contributing_path
+
+
 def init_project(
     path: str | Path,
     project_name: str | None = None,
@@ -559,13 +717,14 @@ def init_project(
     overwrite_pyproject: bool = False,
     overwrite_precommit: bool = False,
     overwrite_license: bool = False,
+    overwrite_contributing: bool = False,
 ) -> Path:
-    """Initialise a wyby game project with git, ``.gitignore``, ``pyproject.toml``, pre-commit config, and LICENSE.
+    """Initialise a wyby game project with git, ``.gitignore``, ``pyproject.toml``, pre-commit config, LICENSE, and CONTRIBUTING.md.
 
     This is a convenience wrapper that calls :func:`init_git_repo`,
     :func:`create_gitignore`, :func:`create_pyproject_toml`,
-    :func:`create_precommit_config`, and :func:`create_license_file`
-    in sequence.
+    :func:`create_precommit_config`, :func:`create_license_file`, and
+    :func:`create_contributing_md` in sequence.
 
     Args:
         path: Directory for the new project.
@@ -576,6 +735,7 @@ def init_project(
         overwrite_pyproject: Passed through to :func:`create_pyproject_toml`.
         overwrite_precommit: Passed through to :func:`create_precommit_config`.
         overwrite_license: Passed through to :func:`create_license_file`.
+        overwrite_contributing: Passed through to :func:`create_contributing_md`.
 
     Returns:
         The resolved ``Path`` of the project directory.
@@ -584,8 +744,9 @@ def init_project(
         GitNotFoundError: If git is not available.
         GitError: If ``git init`` fails.
         FileExistsError: If ``.gitignore``, ``pyproject.toml``,
-            ``.pre-commit-config.yaml``, or ``LICENSE`` exists and the
-            corresponding *overwrite_** flag is ``False``.
+            ``.pre-commit-config.yaml``, ``LICENSE``, or
+            ``CONTRIBUTING.md`` exists and the corresponding
+            *overwrite_** flag is ``False``.
         ValueError: If *project_name* (or the inferred directory name)
             is not a valid PEP 508 project name.
     """
@@ -602,6 +763,8 @@ def init_project(
         copyright_holder=copyright_holder,
         overwrite=overwrite_license,
     )
+
+    create_contributing_md(repo_path, name, overwrite=overwrite_contributing)
 
     logger.info("Initialised wyby project at %s", repo_path)
     return repo_path
