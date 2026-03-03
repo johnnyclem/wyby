@@ -240,6 +240,14 @@ from wyby.curses_migration import (
     format_migration_guide,
     get_entries_by_category as get_migration_entries_by_category,
 )
+from wyby.installation_from_source import (
+    INSTALLATION_CATEGORIES,
+    INSTALLATION_ENTRIES,
+    InstallationEntry,
+    format_installation_for_category,
+    format_installation_guide,
+    get_entries_by_category as get_installation_entries_by_category,
+)
 
 # Attach a NullHandler so that wyby's internal log messages are silently
 # discarded unless the application (game) configures logging. This follows
@@ -453,4 +461,10 @@ __all__ = [
     "format_migration_for_category",
     "format_migration_guide",
     "get_migration_entries_by_category",
+    "INSTALLATION_CATEGORIES",
+    "INSTALLATION_ENTRIES",
+    "InstallationEntry",
+    "format_installation_for_category",
+    "format_installation_guide",
+    "get_installation_entries_by_category",
 ]
