@@ -112,6 +112,7 @@ from wyby.render_warnings import (
     log_render_cost,
 )
 from wyby.renderer import LiveDisplay, Renderer, create_console
+from wyby.test_renderer import TestRendererBuffer
 from wyby.resize import ResizeHandler, get_terminal_size
 from wyby.scene import Scene, SceneStack
 from wyby.signal_handlers import SignalHandler
@@ -302,6 +303,7 @@ __all__ = [
     "RenderCost",
     "Renderer",
     "RenderTimer",
+    "TestRendererBuffer",
     "ResizeHandler",
     "Scene",
     "SceneStack",
