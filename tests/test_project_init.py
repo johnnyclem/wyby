@@ -1,4 +1,4 @@
-"""Tests for wyby.project_init — git, .gitignore, pyproject.toml, and pre-commit config initialisation."""
+"""Tests for wyby.project_init — git, .gitignore, pyproject.toml, pre-commit config, and LICENSE initialisation."""
 
 from __future__ import annotations
 
@@ -10,12 +10,14 @@ import pytest
 
 from wyby.project_init import (
     GITIGNORE_TEMPLATE,
+    MIT_LICENSE_TEMPLATE,
     PRECOMMIT_CONFIG_TEMPLATE,
     PYPROJECT_TEMPLATE,
     GitError,
     GitNotFoundError,
     _normalise_project_name,
     create_gitignore,
+    create_license_file,
     create_precommit_config,
     create_pyproject_toml,
     init_git_repo,
@@ -464,6 +466,113 @@ class TestCreatePrecommitConfig:
 
 
 # ---------------------------------------------------------------------------
+# create_license_file
+# ---------------------------------------------------------------------------
+
+
+class TestCreateLicenseFile:
+    """Tests for create_license_file()."""
+
+    def test_creates_license_in_existing_dir(self, tmp_path: Path) -> None:
+        result = create_license_file(tmp_path)
+        license_path = tmp_path / "LICENSE"
+
+        assert result == license_path
+        assert license_path.exists()
+
+    def test_content_includes_mit_header(self, tmp_path: Path) -> None:
+        create_license_file(tmp_path)
+        content = (tmp_path / "LICENSE").read_text(encoding="utf-8")
+
+        assert content.startswith("MIT License")
+
+    def test_content_includes_permission_text(self, tmp_path: Path) -> None:
+        create_license_file(tmp_path)
+        content = (tmp_path / "LICENSE").read_text(encoding="utf-8")
+
+        assert "Permission is hereby granted" in content
+        assert "WITHOUT WARRANTY OF ANY KIND" in content
+
+    def test_default_copyright_holder_is_placeholder(self, tmp_path: Path) -> None:
+        create_license_file(tmp_path)
+        content = (tmp_path / "LICENSE").read_text(encoding="utf-8")
+
+        assert "<your name>" in content
+
+    def test_custom_copyright_holder(self, tmp_path: Path) -> None:
+        create_license_file(tmp_path, copyright_holder="Jane Doe")
+        content = (tmp_path / "LICENSE").read_text(encoding="utf-8")
+
+        assert "Jane Doe" in content
+        assert "<your name>" not in content
+
+    def test_default_year_is_current_year(self, tmp_path: Path) -> None:
+        import datetime
+
+        create_license_file(tmp_path)
+        content = (tmp_path / "LICENSE").read_text(encoding="utf-8")
+        current_year = datetime.datetime.now(tz=datetime.timezone.utc).year
+
+        assert str(current_year) in content
+
+    def test_explicit_year(self, tmp_path: Path) -> None:
+        create_license_file(tmp_path, year=2042)
+        content = (tmp_path / "LICENSE").read_text(encoding="utf-8")
+
+        assert "2042" in content
+
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        target = tmp_path / "x" / "y"
+        result = create_license_file(target)
+
+        assert result.exists()
+        assert target.is_dir()
+
+    def test_refuses_to_overwrite_by_default(self, tmp_path: Path) -> None:
+        (tmp_path / "LICENSE").write_text("custom content")
+
+        with pytest.raises(FileExistsError, match="already exists"):
+            create_license_file(tmp_path)
+
+    def test_existing_content_preserved_when_not_overwriting(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "LICENSE").write_text("custom content")
+
+        with pytest.raises(FileExistsError):
+            create_license_file(tmp_path)
+
+        assert (tmp_path / "LICENSE").read_text() == "custom content"
+
+    def test_overwrite_replaces_content(self, tmp_path: Path) -> None:
+        (tmp_path / "LICENSE").write_text("old content")
+        create_license_file(tmp_path, overwrite=True)
+
+        content = (tmp_path / "LICENSE").read_text(encoding="utf-8")
+        assert "MIT License" in content
+        assert "old content" not in content
+
+    def test_template_includes_full_mit_text(self) -> None:
+        """The template should contain all standard MIT license sections."""
+        assert "MIT License" in MIT_LICENSE_TEMPLATE
+        assert "Copyright (c)" in MIT_LICENSE_TEMPLATE
+        assert "Permission is hereby granted" in MIT_LICENSE_TEMPLATE
+        assert '"AS IS"' in MIT_LICENSE_TEMPLATE
+        assert "{year}" in MIT_LICENSE_TEMPLATE
+        assert "{copyright_holder}" in MIT_LICENSE_TEMPLATE
+
+    def test_logs_info_on_success(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        with caplog.at_level(logging.INFO):
+            create_license_file(tmp_path)
+
+        assert any("Created LICENSE" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
 # init_project
 # ---------------------------------------------------------------------------
 
@@ -471,7 +580,7 @@ class TestCreatePrecommitConfig:
 class TestInitProject:
     """Tests for init_project() — the convenience wrapper."""
 
-    def test_creates_repo_gitignore_and_pyproject(self, tmp_path: Path) -> None:
+    def test_creates_repo_gitignore_pyproject_and_license(self, tmp_path: Path) -> None:
         target = tmp_path / "game"
         result = init_project(target)
 
@@ -480,6 +589,7 @@ class TestInitProject:
         assert (target / ".gitignore").exists()
         assert (target / "pyproject.toml").exists()
         assert (target / ".pre-commit-config.yaml").exists()
+        assert (target / "LICENSE").exists()
 
     def test_gitignore_has_correct_content(self, tmp_path: Path) -> None:
         target = tmp_path / "game"
@@ -559,6 +669,40 @@ class TestInitProject:
 
         content = (target / ".pre-commit-config.yaml").read_text(encoding="utf-8")
         assert content == PRECOMMIT_CONFIG_TEMPLATE
+
+    def test_license_has_mit_content(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target)
+
+        content = (target / "LICENSE").read_text(encoding="utf-8")
+        assert "MIT License" in content
+
+    def test_license_uses_custom_copyright_holder(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        init_project(target, copyright_holder="Jane Doe")
+
+        content = (target / "LICENSE").read_text(encoding="utf-8")
+        assert "Jane Doe" in content
+
+    def test_refuses_overwrite_license_by_default(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        target.mkdir()
+        subprocess.run(["git", "init", str(target)], check=True, capture_output=True)
+        (target / "LICENSE").write_text("custom")
+
+        with pytest.raises(FileExistsError):
+            init_project(target)
+
+    def test_overwrite_license_flag(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        target.mkdir()
+        subprocess.run(["git", "init", str(target)], check=True, capture_output=True)
+        (target / "LICENSE").write_text("custom")
+
+        init_project(target, overwrite_license=True)
+
+        content = (target / "LICENSE").read_text(encoding="utf-8")
+        assert "MIT License" in content
 
     def test_git_not_found_propagates(self, tmp_path: Path) -> None:
         with patch("wyby.project_init.shutil.which", return_value=None):

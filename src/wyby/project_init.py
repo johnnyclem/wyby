@@ -1,9 +1,10 @@
-"""Utilities for initializing a wyby game project with git, .gitignore, pyproject.toml, and pre-commit config.
+"""Utilities for initializing a wyby game project with git, .gitignore, pyproject.toml, pre-commit config, and LICENSE.
 
 This module provides functions to scaffold a new wyby game project directory
 with a git repository, a .gitignore tailored for Python-based terminal
 game development, a ``pyproject.toml`` declaring the project's metadata
-and dependencies, and a ``.pre-commit-config.yaml`` for code-quality hooks.
+and dependencies, a ``.pre-commit-config.yaml`` for code-quality hooks,
+and an MIT ``LICENSE`` file.
 
 Caveats:
     - Requires ``git`` to be installed and available on the system PATH.
@@ -41,10 +42,18 @@ Caveats:
       dependency; it must be installed separately
       (``pip install pre-commit``) and activated with
       ``pre-commit install`` inside the project's git repo.
+    - The generated ``LICENSE`` file uses the MIT license with a
+      placeholder copyright holder (``<your name>``). The caller should
+      replace this with the actual copyright holder name. The year
+      defaults to the current year at generation time. Note that wyby
+      itself is GPL-3.0-only — the MIT license is for game projects
+      built *with* wyby, not for wyby itself. Game developers are free
+      to choose any license compatible with GPL-3.0 for their projects.
 """
 
 from __future__ import annotations
 
+import datetime
 import logging
 import re
 import shutil
@@ -196,6 +205,44 @@ repos:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
+"""
+
+
+# MIT license template for wyby game projects.
+#
+# Caveats:
+# - The copyright holder defaults to "<your name>" — replace with the actual
+#   author or organisation name. The placeholder is intentional so that
+#   generated projects don't ship with an incorrect copyright line.
+# - The year defaults to the current year at generation time. For multi-year
+#   projects, convention is "2024-2026" but this is not legally required.
+# - wyby itself is GPL-3.0-only. The MIT license here applies to game
+#   projects built *with* wyby, not to wyby itself. The MIT license is
+#   compatible with GPL-3.0: MIT-licensed game code can depend on
+#   GPL-licensed wyby without conflict, but distributing the combined
+#   work must respect the GPL terms for the wyby portions.
+MIT_LICENSE_TEMPLATE = """\
+MIT License
+
+Copyright (c) {year} {copyright_holder}
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 """
 
 
@@ -446,27 +493,89 @@ def create_precommit_config(
     return config_path
 
 
+def create_license_file(
+    path: str | Path,
+    *,
+    copyright_holder: str = "<your name>",
+    year: int | None = None,
+    overwrite: bool = False,
+) -> Path:
+    """Write an MIT ``LICENSE`` file for a wyby game project.
+
+    Args:
+        path: Directory in which to create the ``LICENSE`` file.
+        copyright_holder: Name of the copyright holder. Defaults to
+            ``"<your name>"`` as a placeholder — callers should replace
+            this with the actual author or organisation name.
+        year: Copyright year. Defaults to the current year.
+        overwrite: If ``True``, replace an existing ``LICENSE`` file.
+            Defaults to ``False`` to avoid discarding user edits.
+
+    Returns:
+        The ``Path`` of the written ``LICENSE`` file.
+
+    Raises:
+        FileExistsError: If ``LICENSE`` already exists and *overwrite*
+            is ``False``.
+
+    Caveats:
+        - wyby itself is GPL-3.0-only. This MIT license is for game
+          projects built *with* wyby. MIT-licensed game code can depend
+          on GPL-licensed wyby without conflict, but distributing the
+          combined work must respect GPL terms for the wyby portions.
+        - The default copyright holder ``"<your name>"`` is a placeholder.
+          Replace it before publishing or distributing the project.
+        - The year is set once at file-generation time and is not
+          automatically updated in subsequent years.
+    """
+    if year is None:
+        year = datetime.datetime.now(tz=datetime.timezone.utc).year
+
+    target_dir = Path(path).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    license_path = target_dir / "LICENSE"
+
+    if license_path.exists() and not overwrite:
+        raise FileExistsError(
+            f"LICENSE already exists at {license_path}. "
+            "Pass overwrite=True to replace it."
+        )
+
+    content = MIT_LICENSE_TEMPLATE.format(
+        year=year,
+        copyright_holder=copyright_holder,
+    )
+    license_path.write_text(content, encoding="utf-8")
+    logger.info("Created LICENSE at %s", license_path)
+    return license_path
+
+
 def init_project(
     path: str | Path,
     project_name: str | None = None,
     *,
+    copyright_holder: str = "<your name>",
     overwrite_gitignore: bool = False,
     overwrite_pyproject: bool = False,
     overwrite_precommit: bool = False,
+    overwrite_license: bool = False,
 ) -> Path:
-    """Initialise a wyby game project with git, ``.gitignore``, ``pyproject.toml``, and pre-commit config.
+    """Initialise a wyby game project with git, ``.gitignore``, ``pyproject.toml``, pre-commit config, and LICENSE.
 
     This is a convenience wrapper that calls :func:`init_git_repo`,
-    :func:`create_gitignore`, :func:`create_pyproject_toml`, and
-    :func:`create_precommit_config` in sequence.
+    :func:`create_gitignore`, :func:`create_pyproject_toml`,
+    :func:`create_precommit_config`, and :func:`create_license_file`
+    in sequence.
 
     Args:
         path: Directory for the new project.
         project_name: Name for the project in ``pyproject.toml``. If
             ``None``, defaults to the directory name of *path*.
+        copyright_holder: Passed through to :func:`create_license_file`.
         overwrite_gitignore: Passed through to :func:`create_gitignore`.
         overwrite_pyproject: Passed through to :func:`create_pyproject_toml`.
         overwrite_precommit: Passed through to :func:`create_precommit_config`.
+        overwrite_license: Passed through to :func:`create_license_file`.
 
     Returns:
         The resolved ``Path`` of the project directory.
@@ -474,9 +583,9 @@ def init_project(
     Raises:
         GitNotFoundError: If git is not available.
         GitError: If ``git init`` fails.
-        FileExistsError: If ``.gitignore``, ``pyproject.toml``, or
-            ``.pre-commit-config.yaml`` exists and the corresponding
-            *overwrite_** flag is ``False``.
+        FileExistsError: If ``.gitignore``, ``pyproject.toml``,
+            ``.pre-commit-config.yaml``, or ``LICENSE`` exists and the
+            corresponding *overwrite_** flag is ``False``.
         ValueError: If *project_name* (or the inferred directory name)
             is not a valid PEP 508 project name.
     """
@@ -487,6 +596,12 @@ def init_project(
     create_pyproject_toml(repo_path, name, overwrite=overwrite_pyproject)
 
     create_precommit_config(repo_path, overwrite=overwrite_precommit)
+
+    create_license_file(
+        repo_path,
+        copyright_holder=copyright_holder,
+        overwrite=overwrite_license,
+    )
 
     logger.info("Initialised wyby project at %s", repo_path)
     return repo_path
