@@ -43,6 +43,8 @@ from wyby.color import (
 )
 from wyby.component import Component
 from wyby.entity import Entity
+from wyby.position import Position
+from wyby.velocity import Velocity
 from wyby.diagnostics import (
     ColorSupport,
     FPSCounter,
@@ -116,6 +118,7 @@ __all__ = [
     "Engine",
     "EngineConfig",
     "Entity",
+    "Position",
     "Event",
     "EventQueue",
     "InputContext",
@@ -179,6 +182,7 @@ __all__ = [
     "FadeTransition",
     "SlideTransition",
     "Transition",
+    "Velocity",
     "TERMINAL_CAVEATS",
     "TestCard",
     "build_test_card",
