@@ -125,6 +125,13 @@ from wyby.layout import Alignment, HBox, VBox
 from wyby.text_input import TextInput
 from wyby.cell_size_map import CellSizeMap
 from wyby.collision import AABB, aabb_overlap
+from wyby.collision_accuracy import (
+    cell_distance,
+    cells_occupied,
+    check_tunneling_risk,
+    overlap_cells,
+    overlap_region,
+)
 from wyby.particle import Particle, update_particles
 from wyby.physics import PHYSICS_SCOPE, sync_positions, update_velocities
 from wyby.tile_collision import TileMap
@@ -283,6 +290,11 @@ __all__ = [
     "TextInput",
     "AABB",
     "aabb_overlap",
+    "cell_distance",
+    "cells_occupied",
+    "check_tunneling_risk",
+    "overlap_cells",
+    "overlap_region",
     "Particle",
     "PHYSICS_SCOPE",
     "sync_positions",
