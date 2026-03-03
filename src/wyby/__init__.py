@@ -44,6 +44,7 @@ from wyby.color import (
 from wyby.component import Component
 from wyby.entity import Entity
 from wyby.position import Position
+from wyby.sprite import Sprite
 from wyby.velocity import Velocity
 from wyby.diagnostics import (
     ColorSupport,
@@ -177,6 +178,7 @@ __all__ = [
     "PlatformInfo",
     "show_cursor",
     "SignalHandler",
+    "Sprite",
     "string_width",
     "Cut",
     "FadeTransition",
