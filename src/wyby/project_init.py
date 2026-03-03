@@ -1,8 +1,9 @@
-"""Utilities for initializing a wyby game project with git and .gitignore.
+"""Utilities for initializing a wyby game project with git, .gitignore, and pyproject.toml.
 
 This module provides functions to scaffold a new wyby game project directory
-with a git repository and a .gitignore tailored for Python-based terminal
-game development.
+with a git repository, a .gitignore tailored for Python-based terminal
+game development, and a ``pyproject.toml`` declaring the project's metadata
+and dependencies.
 
 Caveats:
     - Requires ``git`` to be installed and available on the system PATH.
@@ -18,6 +19,18 @@ Caveats:
       or framework-specific entries beyond Python (e.g., no Node, Rust,
       or Java patterns). Projects that mix languages should extend the
       file manually.
+    - The generated ``pyproject.toml`` pins ``wyby`` as a dependency
+      without an upper bound (``>=0.1.0``). Because wyby is pre-release
+      software, breaking changes may occur. Game projects should pin to a
+      specific version (e.g., ``wyby==0.1.0``) once stability matters.
+    - The template uses ``setuptools`` as the build backend for
+      familiarity, but game projects are not libraries and rarely need to
+      be packaged. The ``pyproject.toml`` is primarily useful for
+      dependency management via ``pip install -e .`` and for tool
+      configuration (pytest, ruff).
+    - Project names are normalised to lowercase with hyphens replaced by
+      underscores to comply with PEP 508. Invalid characters (anything
+      outside ``[a-zA-Z0-9._-]``) cause a ``ValueError``.
     - On Windows, ``git init`` may produce paths with backslashes. This
       module normalises paths with ``pathlib`` but does not attempt to
       resolve symlink or junction edge cases.
@@ -26,6 +39,7 @@ Caveats:
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -88,6 +102,78 @@ saves/
 # Environment files that may contain local configuration
 .env
 """
+
+
+# Valid PEP 508 project name: letters, digits, hyphens, underscores, dots.
+_PROJECT_NAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$")
+
+# pyproject.toml template for a new wyby game project.
+#
+# Caveats embedded as comments:
+# - wyby is pinned with a floor version only (>=0.1.0). Pre-release software
+#   may introduce breaking changes; pin tightly when stability matters.
+# - The [project.scripts] section is commented out. Most terminal games are
+#   run directly (`python -m mygame`) rather than installed as console scripts.
+#   Uncomment and adjust if you want `pip install` to create a CLI entry point.
+# - The src layout is recommended but not required. If you prefer a flat layout,
+#   remove the [tool.setuptools.packages.find] section.
+# - requires-python >= 3.10 matches wyby's own requirement. Using an older
+#   Python will fail at install time with a clear error from pip.
+PYPROJECT_TEMPLATE = """\
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "{project_name}"
+version = "0.1.0"
+description = ""
+# wyby requires Python >= 3.10; your game inherits this constraint.
+requires-python = ">=3.10"
+
+# wyby is pinned with a minimum version only. Because wyby is pre-release
+# software, breaking changes may occur before 1.0. Pin to an exact version
+# (e.g. wyby==0.1.0) once you need reproducible builds.
+dependencies = [
+    "wyby>=0.1.0",
+]
+
+# Uncomment to create a console_scripts entry point:
+# [project.scripts]
+# {project_name} = "{project_name_underscored}.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+"""
+
+
+def _normalise_project_name(name: str) -> str:
+    """Normalise a project name for use in pyproject.toml.
+
+    Validates against PEP 508 naming rules and normalises hyphens to
+    underscores for the Python package name.
+
+    Args:
+        name: The raw project name.
+
+    Returns:
+        The normalised name (lowercase, hyphens preserved for project name).
+
+    Raises:
+        ValueError: If *name* is empty or contains invalid characters.
+    """
+    if not name:
+        raise ValueError("Project name must not be empty.")
+    if not _PROJECT_NAME_RE.match(name):
+        raise ValueError(
+            f"Invalid project name {name!r}. Names must start and end with "
+            "a letter or digit and contain only letters, digits, hyphens, "
+            "underscores, or dots."
+        )
+    return name.lower()
 
 
 class GitNotFoundError(Exception):
@@ -208,15 +294,81 @@ def create_gitignore(path: str | Path, *, overwrite: bool = False) -> Path:
     return gitignore_path
 
 
-def init_project(path: str | Path, *, overwrite_gitignore: bool = False) -> Path:
-    """Initialise a wyby game project with a git repo and ``.gitignore``.
+def create_pyproject_toml(
+    path: str | Path,
+    project_name: str,
+    *,
+    overwrite: bool = False,
+) -> Path:
+    """Write a ``pyproject.toml`` for a wyby game project.
 
-    This is a convenience wrapper that calls :func:`init_git_repo` and
-    :func:`create_gitignore` in sequence.
+    The generated file declares ``wyby`` as a runtime dependency and uses
+    setuptools with a ``src`` layout.
+
+    Args:
+        path: Directory in which to create ``pyproject.toml``.
+        project_name: Name for the project. Must be a valid PEP 508 name
+            (letters, digits, hyphens, underscores, dots). Will be
+            normalised to lowercase.
+        overwrite: If ``True``, replace an existing ``pyproject.toml``.
+            Defaults to ``False`` to avoid discarding user edits.
+
+    Returns:
+        The ``Path`` of the written ``pyproject.toml``.
+
+    Raises:
+        ValueError: If *project_name* is empty or contains invalid characters.
+        FileExistsError: If ``pyproject.toml`` already exists and
+            *overwrite* is ``False``.
+
+    Caveats:
+        - The generated file pins ``wyby>=0.1.0`` without an upper bound.
+          Because wyby is pre-release software, breaking changes may occur.
+          Pin to a specific version once stability matters.
+        - The ``[project.scripts]`` section is commented out. Uncomment it
+          if you want ``pip install`` to create a console entry point.
+    """
+    normalised = _normalise_project_name(project_name)
+    # Underscored form for Python package/module references.
+    underscored = normalised.replace("-", "_")
+
+    target_dir = Path(path).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    toml_path = target_dir / "pyproject.toml"
+
+    if toml_path.exists() and not overwrite:
+        raise FileExistsError(
+            f"pyproject.toml already exists at {toml_path}. "
+            "Pass overwrite=True to replace it."
+        )
+
+    content = PYPROJECT_TEMPLATE.format(
+        project_name=normalised,
+        project_name_underscored=underscored,
+    )
+    toml_path.write_text(content, encoding="utf-8")
+    logger.info("Created pyproject.toml at %s", toml_path)
+    return toml_path
+
+
+def init_project(
+    path: str | Path,
+    project_name: str | None = None,
+    *,
+    overwrite_gitignore: bool = False,
+    overwrite_pyproject: bool = False,
+) -> Path:
+    """Initialise a wyby game project with git, ``.gitignore``, and ``pyproject.toml``.
+
+    This is a convenience wrapper that calls :func:`init_git_repo`,
+    :func:`create_gitignore`, and :func:`create_pyproject_toml` in sequence.
 
     Args:
         path: Directory for the new project.
+        project_name: Name for the project in ``pyproject.toml``. If
+            ``None``, defaults to the directory name of *path*.
         overwrite_gitignore: Passed through to :func:`create_gitignore`.
+        overwrite_pyproject: Passed through to :func:`create_pyproject_toml`.
 
     Returns:
         The resolved ``Path`` of the project directory.
@@ -224,10 +376,16 @@ def init_project(path: str | Path, *, overwrite_gitignore: bool = False) -> Path
     Raises:
         GitNotFoundError: If git is not available.
         GitError: If ``git init`` fails.
-        FileExistsError: If ``.gitignore`` exists and *overwrite_gitignore*
-            is ``False``.
+        FileExistsError: If ``.gitignore`` or ``pyproject.toml`` exists and
+            the corresponding *overwrite_** flag is ``False``.
+        ValueError: If *project_name* (or the inferred directory name)
+            is not a valid PEP 508 project name.
     """
     repo_path = init_git_repo(path)
     create_gitignore(repo_path, overwrite=overwrite_gitignore)
+
+    name = project_name if project_name is not None else repo_path.name
+    create_pyproject_toml(repo_path, name, overwrite=overwrite_pyproject)
+
     logger.info("Initialised wyby project at %s", repo_path)
     return repo_path

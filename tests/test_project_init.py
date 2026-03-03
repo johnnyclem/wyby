@@ -1,4 +1,4 @@
-"""Tests for wyby.project_init — git repository and .gitignore initialisation."""
+"""Tests for wyby.project_init — git, .gitignore, and pyproject.toml initialisation."""
 
 from __future__ import annotations
 
@@ -10,9 +10,12 @@ import pytest
 
 from wyby.project_init import (
     GITIGNORE_TEMPLATE,
+    PYPROJECT_TEMPLATE,
     GitError,
     GitNotFoundError,
+    _normalise_project_name,
     create_gitignore,
+    create_pyproject_toml,
     init_git_repo,
     init_project,
 )
@@ -208,6 +211,162 @@ class TestCreateGitignore:
 
 
 # ---------------------------------------------------------------------------
+# _normalise_project_name
+# ---------------------------------------------------------------------------
+
+
+class TestNormaliseProjectName:
+    """Tests for _normalise_project_name()."""
+
+    def test_lowercase_simple_name(self) -> None:
+        assert _normalise_project_name("MyGame") == "mygame"
+
+    def test_preserves_hyphens(self) -> None:
+        assert _normalise_project_name("my-game") == "my-game"
+
+    def test_preserves_underscores(self) -> None:
+        assert _normalise_project_name("my_game") == "my_game"
+
+    def test_preserves_dots(self) -> None:
+        assert _normalise_project_name("my.game") == "my.game"
+
+    def test_single_character_name(self) -> None:
+        assert _normalise_project_name("x") == "x"
+
+    def test_empty_name_raises(self) -> None:
+        with pytest.raises(ValueError, match="must not be empty"):
+            _normalise_project_name("")
+
+    def test_spaces_raise(self) -> None:
+        with pytest.raises(ValueError, match="Invalid project name"):
+            _normalise_project_name("my game")
+
+    def test_leading_hyphen_raises(self) -> None:
+        with pytest.raises(ValueError, match="Invalid project name"):
+            _normalise_project_name("-mygame")
+
+    def test_trailing_hyphen_raises(self) -> None:
+        with pytest.raises(ValueError, match="Invalid project name"):
+            _normalise_project_name("mygame-")
+
+    def test_special_characters_raise(self) -> None:
+        with pytest.raises(ValueError, match="Invalid project name"):
+            _normalise_project_name("my@game!")
+
+
+# ---------------------------------------------------------------------------
+# create_pyproject_toml
+# ---------------------------------------------------------------------------
+
+
+class TestCreatePyprojectToml:
+    """Tests for create_pyproject_toml()."""
+
+    def test_creates_file_in_existing_dir(self, tmp_path: Path) -> None:
+        result = create_pyproject_toml(tmp_path, "mygame")
+        toml_path = tmp_path / "pyproject.toml"
+
+        assert result == toml_path
+        assert toml_path.exists()
+
+    def test_content_includes_project_name(self, tmp_path: Path) -> None:
+        create_pyproject_toml(tmp_path, "mygame")
+        content = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+
+        assert 'name = "mygame"' in content
+
+    def test_content_includes_wyby_dependency(self, tmp_path: Path) -> None:
+        create_pyproject_toml(tmp_path, "mygame")
+        content = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+
+        assert '"wyby>=0.1.0"' in content
+
+    def test_content_includes_build_system(self, tmp_path: Path) -> None:
+        create_pyproject_toml(tmp_path, "mygame")
+        content = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+
+        assert "[build-system]" in content
+        assert 'build-backend = "setuptools.build_meta"' in content
+
+    def test_content_includes_python_requires(self, tmp_path: Path) -> None:
+        create_pyproject_toml(tmp_path, "mygame")
+        content = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+
+        assert 'requires-python = ">=3.10"' in content
+
+    def test_name_is_normalised_to_lowercase(self, tmp_path: Path) -> None:
+        create_pyproject_toml(tmp_path, "MyGame")
+        content = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+
+        assert 'name = "mygame"' in content
+
+    def test_hyphenated_name_produces_underscored_module(
+        self, tmp_path: Path
+    ) -> None:
+        create_pyproject_toml(tmp_path, "my-cool-game")
+        content = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+
+        # Project name preserves hyphens
+        assert 'name = "my-cool-game"' in content
+        # Console script comment uses underscored form
+        assert "my_cool_game.main:main" in content
+
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        target = tmp_path / "a" / "b"
+        result = create_pyproject_toml(target, "mygame")
+
+        assert result.exists()
+        assert target.is_dir()
+
+    def test_refuses_to_overwrite_by_default(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text("custom content")
+
+        with pytest.raises(FileExistsError, match="already exists"):
+            create_pyproject_toml(tmp_path, "mygame")
+
+    def test_existing_content_preserved_when_not_overwriting(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text("custom content")
+
+        with pytest.raises(FileExistsError):
+            create_pyproject_toml(tmp_path, "mygame")
+
+        assert (tmp_path / "pyproject.toml").read_text() == "custom content"
+
+    def test_overwrite_replaces_content(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text("old content")
+        create_pyproject_toml(tmp_path, "mygame", overwrite=True)
+
+        content = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+        assert 'name = "mygame"' in content
+        assert "old content" not in content
+
+    def test_invalid_name_raises_value_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="Invalid project name"):
+            create_pyproject_toml(tmp_path, "my game!")
+
+    def test_empty_name_raises_value_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="must not be empty"):
+            create_pyproject_toml(tmp_path, "")
+
+    def test_template_includes_caveat_comments(self) -> None:
+        """The template should include inline caveats about pinning and pre-release."""
+        assert "pre-release" in PYPROJECT_TEMPLATE
+        assert "wyby>=0.1.0" in PYPROJECT_TEMPLATE
+
+    def test_logs_info_on_success(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        with caplog.at_level(logging.INFO):
+            create_pyproject_toml(tmp_path, "mygame")
+
+        assert any("Created pyproject.toml" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
 # init_project
 # ---------------------------------------------------------------------------
 
@@ -215,13 +374,14 @@ class TestCreateGitignore:
 class TestInitProject:
     """Tests for init_project() — the convenience wrapper."""
 
-    def test_creates_repo_and_gitignore(self, tmp_path: Path) -> None:
+    def test_creates_repo_gitignore_and_pyproject(self, tmp_path: Path) -> None:
         target = tmp_path / "game"
         result = init_project(target)
 
         assert result == target.resolve()
         assert (target / ".git").is_dir()
         assert (target / ".gitignore").exists()
+        assert (target / "pyproject.toml").exists()
 
     def test_gitignore_has_correct_content(self, tmp_path: Path) -> None:
         target = tmp_path / "game"
@@ -229,6 +389,20 @@ class TestInitProject:
 
         content = (target / ".gitignore").read_text(encoding="utf-8")
         assert content == GITIGNORE_TEMPLATE
+
+    def test_pyproject_uses_directory_name_by_default(self, tmp_path: Path) -> None:
+        target = tmp_path / "mygame"
+        init_project(target)
+
+        content = (target / "pyproject.toml").read_text(encoding="utf-8")
+        assert 'name = "mygame"' in content
+
+    def test_pyproject_uses_explicit_project_name(self, tmp_path: Path) -> None:
+        target = tmp_path / "somedir"
+        init_project(target, "cool-game")
+
+        content = (target / "pyproject.toml").read_text(encoding="utf-8")
+        assert 'name = "cool-game"' in content
 
     def test_refuses_overwrite_by_default(self, tmp_path: Path) -> None:
         target = tmp_path / "game"
@@ -249,6 +423,17 @@ class TestInitProject:
 
         content = (target / ".gitignore").read_text(encoding="utf-8")
         assert content == GITIGNORE_TEMPLATE
+
+    def test_overwrite_pyproject_flag(self, tmp_path: Path) -> None:
+        target = tmp_path / "game"
+        target.mkdir()
+        subprocess.run(["git", "init", str(target)], check=True, capture_output=True)
+        (target / "pyproject.toml").write_text("old")
+
+        init_project(target, overwrite_pyproject=True)
+
+        content = (target / "pyproject.toml").read_text(encoding="utf-8")
+        assert 'name = "game"' in content
 
     def test_git_not_found_propagates(self, tmp_path: Path) -> None:
         with patch("wyby.project_init.shutil.which", return_value=None):

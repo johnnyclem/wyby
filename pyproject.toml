@@ -8,6 +8,22 @@ version = "0.1.0dev0"
 description = "A Python framework for terminal-rendered 2D games"
 requires-python = ">=3.10"
 license = "GPL-3.0-only"
+# Rich is the sole runtime dependency — it provides styled text rendering,
+# Live display for game loops, and cross-platform terminal support (including
+# Windows without windows-curses). Pinned to >=13.0 for Live and Console
+# features used by the renderer.
+dependencies = [
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+# Dev dependencies kept as optional extras so CI and contributors can
+# install them with `pip install -e ".[dev]"` without polluting the
+# runtime dependency tree.
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
