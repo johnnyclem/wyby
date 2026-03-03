@@ -509,6 +509,41 @@ class Renderer:
         self._live_display.stop()
         _logger.debug("Renderer stopped")
 
+    def clear_buffer(self) -> None:
+        """Clear the terminal display by pushing an empty frame.
+
+        Replaces the currently displayed content with an empty string,
+        effectively blanking the renderer's output area.  This is useful
+        for scene transitions, fade-to-black effects, or resetting the
+        display before a new sequence of :meth:`present` calls.
+
+        Does **not** affect the :attr:`frame_count` — clearing is not
+        considered a "frame" in the game-loop sense.
+
+        Caveats:
+            - No-op if the renderer is not started.  Does not raise.
+            - This clears only the Rich ``Live`` display region.  It does
+              **not** clear the entire terminal screen.  Content above or
+              below the ``Live`` region (e.g., scrollback, shell prompt)
+              is unaffected.  Use :class:`~wyby.alt_screen.AltScreen` for
+              full-screen management.
+            - This does **not** clear a :class:`~wyby.grid.CellBuffer`.
+              If the game uses a ``CellBuffer``, call
+              :meth:`CellBuffer.clear() <wyby.grid.CellBuffer.clear>`
+              separately to reset the cell data.  ``clear_buffer`` only
+              affects what is currently visible on the terminal.
+            - The clear is synchronous — it blocks until the terminal
+              write completes, just like :meth:`present`.
+            - Calling ``clear_buffer()`` followed immediately by
+              ``present()`` in the same tick is redundant — ``present()``
+              will overwrite the blank frame.  Use ``clear_buffer()`` when
+              you want the blank state to be visible for at least one
+              frame (e.g., between scenes).
+        """
+        if not self._live_display.is_started:
+            return
+        self._live_display.update("")
+
     def present(self, renderable: RenderableType) -> None:
         """Push a renderable to the terminal as the current frame.
 

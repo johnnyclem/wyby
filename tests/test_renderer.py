@@ -597,6 +597,74 @@ class TestRendererPresent:
 
 
 # ---------------------------------------------------------------------------
+# Renderer — clear_buffer
+# ---------------------------------------------------------------------------
+
+
+class TestRendererClearBuffer:
+    """Tests for Renderer.clear_buffer()."""
+
+    @staticmethod
+    def _make_renderer() -> Renderer:
+        console = Console(file=io.StringIO(), force_terminal=True)
+        return Renderer(console=console)
+
+    def test_clear_buffer_when_started(self) -> None:
+        """clear_buffer() should succeed without error when started."""
+        renderer = self._make_renderer()
+        with renderer:
+            renderer.present(Text("some content"))
+            renderer.clear_buffer()
+
+    def test_clear_buffer_does_not_increment_frame_count(self) -> None:
+        """clear_buffer() is not a frame — frame_count should not change."""
+        renderer = self._make_renderer()
+        with renderer:
+            renderer.present(Text("frame 1"))
+            assert renderer.frame_count == 1
+            renderer.clear_buffer()
+            assert renderer.frame_count == 1
+
+    def test_clear_buffer_when_not_started_is_noop(self) -> None:
+        """clear_buffer() before start() should silently do nothing."""
+        renderer = self._make_renderer()
+        renderer.clear_buffer()  # Should not raise
+        assert renderer.frame_count == 0
+
+    def test_clear_buffer_after_stop_is_noop(self) -> None:
+        """clear_buffer() after stop() should silently do nothing."""
+        renderer = self._make_renderer()
+        renderer.start()
+        renderer.stop()
+        renderer.clear_buffer()  # Should not raise
+
+    def test_present_after_clear_buffer(self) -> None:
+        """present() should work normally after clear_buffer()."""
+        renderer = self._make_renderer()
+        with renderer:
+            renderer.present(Text("frame 1"))
+            renderer.clear_buffer()
+            renderer.present(Text("frame 2"))
+            assert renderer.frame_count == 2
+
+    def test_multiple_clear_buffers(self) -> None:
+        """Calling clear_buffer() multiple times should not raise."""
+        renderer = self._make_renderer()
+        with renderer:
+            renderer.clear_buffer()
+            renderer.clear_buffer()
+            renderer.clear_buffer()
+            assert renderer.frame_count == 0
+
+    def test_clear_buffer_before_any_present(self) -> None:
+        """clear_buffer() should work even if no frame has been presented."""
+        renderer = self._make_renderer()
+        with renderer:
+            renderer.clear_buffer()  # No prior present() call
+            assert renderer.frame_count == 0
+
+
+# ---------------------------------------------------------------------------
 # Renderer — repr
 # ---------------------------------------------------------------------------
 
