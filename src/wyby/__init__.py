@@ -48,6 +48,12 @@ from wyby.diagnostics import (
 from wyby.event import Event, EventQueue
 from wyby.grid import Cell, CellBuffer
 from wyby.layer import Layer, LayerStack
+from wyby.render_warnings import (
+    RenderCost,
+    check_flicker_risk,
+    estimate_render_cost,
+    log_render_cost,
+)
 from wyby.renderer import LiveDisplay, Renderer, create_console
 from wyby.resize import ResizeHandler, get_terminal_size
 from wyby.scene import Scene, SceneStack
@@ -72,19 +78,23 @@ __all__ = [
     "LayerStack",
     "LiveDisplay",
     "QuitSignal",
+    "RenderCost",
     "Renderer",
     "ResizeHandler",
     "Scene",
     "SceneStack",
     "TerminalCapabilities",
     "color_system_for_support",
+    "check_flicker_risk",
     "configure_logging",
     "create_console",
     "detect_capabilities",
     "disable_alt_screen",
     "downgrade_color",
     "enable_alt_screen",
+    "estimate_render_cost",
     "get_terminal_size",
+    "log_render_cost",
     "nearest_ansi16",
     "nearest_ansi256",
     "parse_color",

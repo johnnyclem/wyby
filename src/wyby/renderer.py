@@ -58,6 +58,8 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 from rich.live import Live
 
+from wyby.render_warnings import log_render_cost
+
 if TYPE_CHECKING:
     from rich.console import RenderableType
 
@@ -495,6 +497,14 @@ class Renderer:
             return
         self._frame_count = 0
         self._live_display.start()
+
+        # Log a flicker/latency warning if the console dimensions
+        # suggest heavy rendering.  This runs once at start, not per
+        # frame, to avoid log spam.  The warning is advisory — the
+        # renderer does not refuse to start for large grids.
+        console = self._live_display.console
+        log_render_cost(console.width, console.height)
+
         _logger.debug("Renderer started")
 
     def stop(self) -> None:
@@ -569,6 +579,14 @@ class Renderer:
               ``present()`` is called multiple times per tick, each
               call writes to the terminal independently.  The game
               loop should call ``present()`` exactly once per tick.
+            - For large or heavily styled grids, flicker and latency
+              are likely — especially on slow terminals, over SSH, or
+              inside tmux/screen.  Use
+              :func:`~wyby.render_warnings.estimate_render_cost` to
+              check cost at startup and
+              :class:`~wyby.diagnostics.FPSCounter` to measure actual
+              throughput at runtime.  See
+              ``docs/rendering_performance.md`` for mitigation advice.
         """
         if not self._live_display.is_started:
             return
