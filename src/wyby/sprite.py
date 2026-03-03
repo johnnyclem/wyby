@@ -6,7 +6,10 @@ into a :class:`~wyby.grid.CellBuffer`.
 
 Also provides :func:`from_text`, a factory function that converts
 multi-line ASCII art into positioned :class:`~wyby.entity.Entity`
-instances, each carrying a :class:`Sprite` component.
+instances, each carrying a :class:`Sprite` component, and
+:func:`from_image`, a factory function that converts a Pillow
+:class:`~PIL.Image.Image` into positioned entities with per-pixel
+colour styling.
 
 Usage::
 
@@ -25,6 +28,13 @@ Usage::
     # Load ASCII art as entities
     entities = from_text("###\\n# #\\n###")
     # → 8 entities (the spaces are skipped), positioned at grid coords
+
+    # Load a Pillow image as entities (requires Pillow)
+    from PIL import Image
+    from wyby.sprite import from_image
+    img = Image.new("RGB", (4, 3), color=(255, 0, 0))
+    entities = from_image(img, origin_x=5)
+    # → 12 entities, each a red "█" block
 
 Caveats:
     - **Single character only.**  The ``char`` must be exactly one
@@ -74,6 +84,7 @@ from typing import TYPE_CHECKING
 from wyby.component import Component
 
 if TYPE_CHECKING:
+    from PIL import Image
     from rich.style import Style
     from wyby.entity import Entity
 
@@ -363,5 +374,218 @@ def from_text(
     _logger.debug(
         "from_text created %d entities from %d lines",
         len(entities), len(lines),
+    )
+    return entities
+
+
+# Default character for from_image — full block fills a terminal cell.
+_DEFAULT_IMAGE_CHAR = "\u2588"
+
+
+def from_image(
+    image: Image.Image,
+    *,
+    origin_x: int = 0,
+    origin_y: int = 0,
+    char: str = _DEFAULT_IMAGE_CHAR,
+    skip_alpha: bool = True,
+    alpha_threshold: int = 0,
+) -> list[Entity]:
+    """Create entities with Sprite components from a Pillow image.
+
+    Each pixel in *image* becomes a separate
+    :class:`~wyby.entity.Entity` at the pixel's grid coordinates
+    (offset by *origin_x*, *origin_y*), with a :class:`Sprite` component
+    carrying *char* styled with the pixel's colour as the foreground.
+
+    Requires the ``Pillow`` library (``pip install wyby[image]``).
+
+    Example::
+
+        from PIL import Image
+        from wyby.sprite import from_image
+
+        img = Image.open("hero.png").resize((8, 8))
+        entities = from_image(img, origin_x=5, origin_y=2)
+        for e in entities:
+            scene.add_entity(e)
+
+    Args:
+        image: A Pillow :class:`~PIL.Image.Image` instance.  Any mode
+            is accepted — the image is converted to ``"RGBA"`` internally.
+        origin_x: X offset added to every entity's x position.
+            Defaults to 0.
+        origin_y: Y offset added to every entity's y position.
+            Defaults to 0.
+        char: The character used for every pixel's Sprite.  Defaults to
+            ``"█"`` (U+2588, full block), which fills a terminal cell
+            completely.
+        skip_alpha: If ``True`` (the default), fully transparent pixels
+            (alpha <= *alpha_threshold*) do not produce entities.  Set to
+            ``False`` to create entities for all pixels regardless of
+            alpha.
+        alpha_threshold: Alpha value at or below which a pixel is
+            considered transparent when *skip_alpha* is ``True``.
+            Defaults to 0 (only fully transparent pixels are skipped).
+            Range: 0–255.
+
+    Returns:
+        A list of :class:`~wyby.entity.Entity` instances, each with a
+        :class:`Sprite` component.  Entities are ordered top-to-bottom,
+        left-to-right (row 0 first, then row 1, etc.).  The list is
+        empty if all pixels are transparent and *skip_alpha* is ``True``.
+
+    Raises:
+        ImportError: If Pillow is not installed.
+        TypeError: If *image* is not a :class:`~PIL.Image.Image` instance.
+        TypeError: If *origin_x* or *origin_y* is not an int.
+        TypeError: If *char* is not a string.
+        ValueError: If *char* is not exactly one character.
+        ValueError: If *alpha_threshold* is outside 0–255.
+        ValueError: If the image has zero width or height.
+
+    Caveats:
+        - **Quantization.**  A typical image may contain thousands of
+          unique colours.  Terminals support at most 16 million (truecolor),
+          256, or 16 colours depending on capability.  More importantly,
+          each unique colour means a unique Rich :class:`~rich.style.Style`
+          object.  For large images, reduce the palette *before* calling
+          ``from_image`` using Pillow's quantization::
+
+              # Reduce to 16 colours (good for ANSI terminals)
+              img = img.quantize(colors=16).convert("RGBA")
+
+              # Or use adaptive palette with dithering
+              img = img.quantize(colors=64, dither=Image.Dither.FLOYDSTEINBERG)
+              img = img.convert("RGBA")
+
+          Quantizing first keeps entity count the same but dramatically
+          reduces the number of distinct styles, which improves rendering
+          performance and produces output that maps well to limited terminal
+          palettes.  See :mod:`wyby.color` for terminal colour downgrade
+          utilities.
+        - **Each pixel becomes a separate entity.**  A 40×20 image produces
+          up to 800 entities.  For anything larger, consider resizing the
+          image first (``image.resize((cols, rows))``) or drawing directly
+          into the :class:`~wyby.grid.CellBuffer`.  Reserve ``from_image``
+          for small sprites and icons.
+        - **Terminal aspect ratio.**  Terminal cells are typically ~2:1
+          (taller than wide).  A square image will appear stretched
+          vertically.  To compensate, resize the image to half height
+          before conversion::
+
+              w, h = img.size
+              img = img.resize((w, h // 2))
+
+          Or use a half-block character (``"▀"`` or ``"▄"``) and a
+          custom rendering approach for 2-pixel-per-cell output.
+        - **Alpha handling.**  Pillow modes without alpha (``"RGB"``,
+          ``"L"``, ``"P"`` without transparency) are converted to
+          ``"RGBA"`` with alpha=255 (fully opaque).  All pixels will
+          produce entities unless *skip_alpha* is ``False``.
+        - **Colour format.**  Pixel colours are emitted as hex strings
+          (``"#rrggbb"``) in the Rich Style.  These are truecolor values.
+          On terminals that do not support truecolor, Rich will
+          automatically downgrade to the nearest available colour.  For
+          explicit control, use :func:`~wyby.color.downgrade_color` on
+          the styles after creation.
+        - **Greyscale images.**  Greyscale (``"L"``) and palette (``"P"``)
+          images are converted to ``"RGBA"`` before processing.  The
+          greyscale value becomes an RGB triplet (e.g. grey 128 becomes
+          ``#808080``).
+        - **Entities have auto-assigned IDs**, same as :func:`from_text`.
+        - **No built-in animation.**  For animated sprites from image
+          sequences (GIF frames), call ``from_image`` per frame and swap
+          entity lists in your game loop.
+    """
+    try:
+        from PIL import Image as _PILImage
+    except ImportError:
+        raise ImportError(
+            "Pillow is required for from_image(). "
+            "Install it with: pip install wyby[image]"
+        ) from None
+
+    # Validate image type.
+    if not isinstance(image, _PILImage.Image):
+        raise TypeError(
+            f"image must be a PIL.Image.Image instance, "
+            f"got {type(image).__name__}"
+        )
+
+    # Validate origin types.
+    if not isinstance(origin_x, int) or isinstance(origin_x, bool):
+        raise TypeError(
+            f"origin_x must be an int, got {type(origin_x).__name__}"
+        )
+    if not isinstance(origin_y, int) or isinstance(origin_y, bool):
+        raise TypeError(
+            f"origin_y must be an int, got {type(origin_y).__name__}"
+        )
+
+    # Validate char.
+    if not isinstance(char, str):
+        raise TypeError(
+            f"char must be a string, got {type(char).__name__}"
+        )
+    if len(char) != 1:
+        raise ValueError(
+            f"char must be exactly one character, got {char!r} "
+            f"(length {len(char)})"
+        )
+    from wyby.unicode import char_width as _char_width
+    if _char_width(char) == 0:
+        raise ValueError(
+            f"char must have non-zero display width, got {char!r} "
+            f"(a zero-width character cannot occupy a terminal cell)"
+        )
+
+    # Validate alpha_threshold.
+    if not isinstance(alpha_threshold, int) or isinstance(alpha_threshold, bool):
+        raise TypeError(
+            f"alpha_threshold must be an int, got {type(alpha_threshold).__name__}"
+        )
+    if alpha_threshold < 0 or alpha_threshold > 255:
+        raise ValueError(
+            f"alpha_threshold must be 0–255, got {alpha_threshold}"
+        )
+
+    # Validate image dimensions.
+    width, height = image.size
+    if width == 0 or height == 0:
+        raise ValueError(
+            f"image must have non-zero dimensions, got {width}x{height}"
+        )
+
+    # Convert to RGBA for uniform pixel access.
+    rgba = image.convert("RGBA")
+
+    from rich.style import Style as _Style
+    from wyby.entity import Entity as _Entity
+
+    entities: list[_Entity] = []
+    pixels = rgba.load()
+
+    for row in range(height):
+        for col in range(width):
+            r, g, b, a = pixels[col, row]
+
+            # Skip transparent pixels if requested.
+            if skip_alpha and a <= alpha_threshold:
+                continue
+
+            hex_color = f"#{r:02x}{g:02x}{b:02x}"
+            style = _Style(color=hex_color)
+
+            entity = _Entity(
+                x=origin_x + col,
+                y=origin_y + row,
+            )
+            entity.add_component(Sprite(char, style))
+            entities.append(entity)
+
+    _logger.debug(
+        "from_image created %d entities from %dx%d image",
+        len(entities), width, height,
     )
     return entities

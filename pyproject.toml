@@ -17,6 +17,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Image loading support — Pillow is only needed for from_image().
+# Install with `pip install -e ".[image]"` or `pip install wyby[image]`.
+image = [
+    "Pillow>=9.0",
+]
 # Dev dependencies kept as optional extras so CI and contributors can
 # install them with `pip install -e ".[dev]"` without polluting the
 # runtime dependency tree.
@@ -24,6 +29,7 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "ruff>=0.4.0",
+    "Pillow>=9.0",
 ]
 
 [tool.setuptools.packages.find]
