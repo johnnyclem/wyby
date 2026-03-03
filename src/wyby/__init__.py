@@ -24,9 +24,9 @@ Package structure::
         _platform.py     # Platform-specific input backends (internal)
         project_init.py  # Project scaffolding utilities
 
-Most modules above are stubs awaiting implementation. Currently only
-``project_init``, ``_logging``, ``app``, ``scene``, and ``resize``
-are functional.
+Most modules above are stubs awaiting implementation. Currently
+``project_init``, ``_logging``, ``app``, ``scene``, ``resize``,
+and ``renderer`` are functional.
 """
 
 from wyby._logging import configure_logging, setup_null_handler
@@ -34,6 +34,7 @@ from wyby.alt_screen import AltScreen, disable_alt_screen, enable_alt_screen
 from wyby.app import Engine, EngineConfig, QuitSignal
 from wyby.diagnostics import FPSCounter
 from wyby.event import Event, EventQueue
+from wyby.renderer import LiveDisplay, create_console
 from wyby.resize import ResizeHandler, get_terminal_size
 from wyby.scene import Scene, SceneStack
 
@@ -50,11 +51,13 @@ __all__ = [
     "Event",
     "EventQueue",
     "FPSCounter",
+    "LiveDisplay",
     "QuitSignal",
     "ResizeHandler",
     "Scene",
     "SceneStack",
     "configure_logging",
+    "create_console",
     "disable_alt_screen",
     "enable_alt_screen",
     "get_terminal_size",

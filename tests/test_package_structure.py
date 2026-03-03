@@ -19,7 +19,6 @@ import wyby
 EXPECTED_PUBLIC_MODULES = [
     "input",
     "entity",
-    "renderer",
     "grid",
     "color",
     "save",
@@ -34,6 +33,7 @@ EXPECTED_EXISTING_MODULES = [
     "app",
     "diagnostics",
     "project_init",
+    "renderer",
     "scene",
 ]
 

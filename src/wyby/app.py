@@ -98,11 +98,16 @@ from __future__ import annotations
 import dataclasses
 import logging
 import time
+from typing import TYPE_CHECKING
 
 from wyby._logging import configure_logging
 from wyby.diagnostics import FPSCounter
 from wyby.event import EventQueue
+from wyby.renderer import LiveDisplay, create_console
 from wyby.scene import SceneStack
+
+if TYPE_CHECKING:
+    from rich.console import Console
 
 _logger = logging.getLogger(__name__)
 
@@ -336,6 +341,8 @@ class Engine:
         "_accumulator",
         "_event_queue",
         "_scene_stack",
+        "_console",
+        "_live_display",
     )
 
     def __init__(
@@ -348,6 +355,7 @@ class Engine:
         show_fps: bool = False,
         *,
         config: EngineConfig | None = None,
+        console: Console | None = None,
     ) -> None:
         if config is not None:
             # When a config object is provided, use its values.
@@ -407,6 +415,20 @@ class Engine:
         self._accumulator: float = 0.0
         self._event_queue = EventQueue()
         self._scene_stack = SceneStack()
+
+        # Rich Console for terminal output.  When not provided, a
+        # Console is created with auto-detected terminal settings
+        # (size, color capability, TTY detection).  Pass a custom
+        # Console for testing or advanced configuration (e.g., forcing
+        # a specific color system or writing to a StringIO buffer).
+        # Caveat: the Console is shared with the LiveDisplay.  Do not
+        # call console.print() directly while the LiveDisplay is
+        # started — Rich's Live will conflict with direct writes,
+        # causing display corruption.
+        self._console = (
+            console if console is not None else create_console()
+        )
+        self._live_display = LiveDisplay(console=self._console)
 
         _logger.debug(
             "Engine initialized: title=%r, width=%d, height=%d, "
@@ -474,6 +496,47 @@ class Engine:
               these numbers to promise performance to end users.
         """
         return self._fps_counter
+
+    @property
+    def console(self) -> Console:
+        """The Rich Console used for terminal output.
+
+        This console is shared with the :attr:`live_display` and
+        any future renderer.  It is configured with Rich markup and
+        syntax highlighting disabled (appropriate for game output).
+
+        Caveats:
+            - Do not call ``console.print()`` directly while the
+              :attr:`live_display` is started — Rich's ``Live`` will
+              conflict with direct writes, causing display corruption.
+              Use ``live_display.update()`` instead.
+            - The console's ``width`` and ``height`` reflect the
+              terminal size at the time the console was created (or
+              the override values if provided).  They do not
+              automatically update on terminal resize.
+        """
+        return self._console
+
+    @property
+    def live_display(self) -> LiveDisplay:
+        """The :class:`LiveDisplay` for pushing frames to the terminal.
+
+        The display is created during engine initialization but is
+        **not** started automatically.  Call ``live_display.start()``
+        before pushing renderables, or use it as a context manager.
+        The engine's :meth:`_shutdown` method stops the display if
+        it was started, ensuring terminal state is restored on exit.
+
+        Caveats:
+            - The display is not started by :meth:`run`.  Starting
+              and managing the display lifecycle is the responsibility
+              of the game code or a higher-level Renderer class.
+            - If the display is started, it is stopped during
+              :meth:`_shutdown` (which runs on all exit paths from
+              :meth:`run`).  This ensures cursor visibility is
+              restored even if the game crashes.
+        """
+        return self._live_display
 
     @property
     def target_dt(self) -> float:
@@ -772,6 +835,13 @@ class Engine:
                 )
 
         self._event_queue.clear()
+
+        # Stop the Live display if it was started (by game code or a
+        # Renderer).  This restores cursor visibility and cleans up
+        # Rich's terminal state.  Idempotent — safe even if the
+        # display was never started.
+        self._live_display.stop()
+
         _logger.debug("Engine shutdown complete")
 
     def _tick(self) -> None:
