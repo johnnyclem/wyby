@@ -116,6 +116,7 @@ from wyby.resize import ResizeHandler, get_terminal_size
 from wyby.scene import Scene, SceneStack
 from wyby.signal_handlers import SignalHandler
 from wyby.transition import Cut, FadeTransition, SlideTransition, Transition
+from wyby.cell_size_map import CellSizeMap
 from wyby.font_variance import (
     DEFAULT_CELL_ASPECT_RATIO,
     FONT_VARIANCE_ISSUES,
@@ -149,6 +150,7 @@ __all__ = [
     "HiddenCursor",
     "CELL_ASPECT_RATIO",
     "Cell",
+    "CellSizeMap",
     "CellBuffer",
     "correct_aspect_ratio",
     "clip_to_terminal",
