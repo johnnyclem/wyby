@@ -1,24 +1,237 @@
 """Platform-specific input backends (Unix/Windows).
 
-This module will provide the low-level, platform-dependent code for
-reading keyboard input: ``termios`` raw mode on Unix, ``msvcrt`` on
-Windows.
+This module provides the low-level, platform-dependent code for
+reading raw bytes from stdin without line buffering or echo.
+
+On Unix (Linux, macOS, BSDs):
+    Uses ``termios`` to switch stdin to raw mode and ``select.select``
+    for non-blocking reads.  Raw mode disables line buffering, echo,
+    and signal generation (Ctrl+C no longer sends SIGINT — the byte
+    ``\\x03`` is delivered to the application instead).
+
+On Windows:
+    Uses ``msvcrt.kbhit()`` to check for available input and
+    ``msvcrt.getwch()`` to read characters without echo.  No terminal
+    mode switching is needed because ``msvcrt`` operates at a lower
+    level than the console line editor.
 
 Caveats:
-    - **Not yet implemented.** This module is a placeholder establishing
-      the package structure. See SCOPE.md for the intended design.
-    - This module is internal (prefixed with ``_``). Game code should
+    - This module is internal (prefixed with ``_``).  Game code should
       use the public API in ``wyby.input``, not import from here
       directly.
     - On Unix, raw mode via ``termios`` disables line buffering and
-      echo. Terminal cooked mode **must** be restored on exit, including
-      on crashes and signal interrupts (SIGINT, SIGTERM). Failure to
+      echo.  Terminal cooked mode **must** be restored on exit, including
+      on crashes and signal interrupts (SIGINT, SIGTERM).  Failure to
       restore leaves the terminal in a broken state.
     - On Windows, ``msvcrt.kbhit()`` / ``msvcrt.getwch()`` behave
-      differently from Unix in key representation and timing. Some
+      differently from Unix in key representation and timing.  Some
       keys produce two-byte sequences on Windows (e.g., arrow keys
       return ``\\x00`` or ``\\xe0`` followed by a scan code).
     - SSH sessions, ``screen``/``tmux`` multiplexers, and containers
       may alter input behaviour in ways that are difficult to detect
       at runtime.
+    - When stdin is not a TTY (e.g., piped input, CI environments),
+      raw mode cannot be entered.  The backends detect this and raise
+      ``RuntimeError``.
 """
+
+from __future__ import annotations
+
+import abc
+import logging
+import os
+import sys
+_logger = logging.getLogger(__name__)
+
+
+class InputBackend(abc.ABC):
+    """Abstract base class for platform-specific input backends.
+
+    Subclasses implement raw-mode entry/exit and non-blocking byte
+    reads from stdin.  The public :class:`~wyby.input.InputManager`
+    uses a backend instance internally — game code should not interact
+    with backends directly.
+    """
+
+    @abc.abstractmethod
+    def enter_raw_mode(self) -> None:
+        """Switch stdin to raw mode (no echo, no line buffering).
+
+        Raises:
+            RuntimeError: If stdin is not a TTY.
+        """
+
+    @abc.abstractmethod
+    def exit_raw_mode(self) -> None:
+        """Restore stdin to its original (cooked) mode.
+
+        Safe to call multiple times; subsequent calls are no-ops.
+        """
+
+    @abc.abstractmethod
+    def read_bytes(self) -> bytes:
+        """Non-blocking read of all available bytes from stdin.
+
+        Returns an empty ``bytes`` object if no input is available.
+        Must be called while in raw mode.
+        """
+
+    @property
+    @abc.abstractmethod
+    def is_raw(self) -> bool:
+        """Whether stdin is currently in raw mode."""
+
+
+# ---- Unix backend --------------------------------------------------------
+
+if sys.platform != "win32":
+    import select
+    import termios
+    import tty
+
+    class UnixInputBackend(InputBackend):
+        """Unix input backend using ``termios`` raw mode and ``select``.
+
+        Caveats:
+            - Entering raw mode disables Ctrl+C signal generation.
+              The byte ``\\x03`` is delivered as regular input.  The
+              ``InputManager`` is responsible for interpreting it as
+              a ``KeyboardInterrupt``.
+            - ``select.select`` with a zero timeout provides
+              non-blocking reads but has O(n) cost in the number of
+              file descriptors on some platforms.  For a single stdin
+              fd this is negligible.
+            - If the process is backgrounded (``SIGTSTP``), the terminal
+              driver may reset settings.  Foregrounding does not
+              automatically re-enter raw mode.  The engine should
+              re-enter raw mode after ``SIGCONT`` if needed.
+        """
+
+        __slots__ = ("_fd", "_old_settings", "_raw")
+
+        def __init__(self, fd: int | None = None) -> None:
+            self._fd = fd if fd is not None else sys.stdin.fileno()
+            self._old_settings: list[object] | None = None
+            self._raw = False
+
+        def enter_raw_mode(self) -> None:
+            if self._raw:
+                return
+            if not os.isatty(self._fd):
+                raise RuntimeError(
+                    "stdin is not a TTY — cannot enter raw mode.  "
+                    "This typically means input is piped or the process "
+                    "is running in a non-interactive environment (CI, "
+                    "cron, Docker without -it)."
+                )
+            self._old_settings = termios.tcgetattr(self._fd)
+            tty.setraw(self._fd)
+            self._raw = True
+            _logger.debug("Entered raw mode on fd %d", self._fd)
+
+        def exit_raw_mode(self) -> None:
+            if not self._raw or self._old_settings is None:
+                return
+            termios.tcsetattr(
+                self._fd, termios.TCSADRAIN, self._old_settings
+            )
+            self._raw = False
+            self._old_settings = None
+            _logger.debug("Restored cooked mode on fd %d", self._fd)
+
+        def read_bytes(self) -> bytes:
+            """Non-blocking read via ``select`` + ``os.read``.
+
+            Returns all available bytes (up to 1024) or empty bytes
+            if nothing is available.
+
+            Caveats:
+                - Reads up to 1024 bytes at a time.  A single key press
+                  is typically 1–6 bytes (UTF-8 char or ANSI escape
+                  sequence), so 1024 is generous.
+                - If select reports readability but os.read returns
+                  empty bytes, stdin has reached EOF (e.g., piped input
+                  exhausted).
+            """
+            readable, _, _ = select.select([self._fd], [], [], 0)
+            if not readable:
+                return b""
+            return os.read(self._fd, 1024)
+
+        @property
+        def is_raw(self) -> bool:
+            return self._raw
+
+
+# ---- Windows backend -----------------------------------------------------
+
+if sys.platform == "win32":
+    import msvcrt
+
+    class WindowsInputBackend(InputBackend):
+        """Windows input backend using ``msvcrt``.
+
+        Caveats:
+            - ``msvcrt.getwch()`` returns characters (not bytes).
+              The returned string is encoded to bytes for consistency
+              with the Unix backend.
+            - Arrow keys and function keys produce two-character
+              sequences: ``\\x00`` or ``\\xe0`` followed by a scan
+              code byte.  The ``read_bytes`` method reads both parts
+              in a single call.
+            - No terminal mode switching is needed on Windows — there
+              is no equivalent of "cooked mode" that needs restoring.
+              ``enter_raw_mode`` and ``exit_raw_mode`` are no-ops.
+            - On Windows, ``msvcrt`` only works with the console
+              (``conhost.exe`` or Windows Terminal).  It does not work
+              with pipes or redirected stdin.
+        """
+
+        __slots__ = ("_raw",)
+
+        def __init__(self) -> None:
+            self._raw = False
+
+        def enter_raw_mode(self) -> None:
+            # No mode switching needed on Windows.  msvcrt bypasses
+            # the console line editor by default.
+            self._raw = True
+            _logger.debug("Windows input backend activated (no mode switch)")
+
+        def exit_raw_mode(self) -> None:
+            self._raw = False
+
+        def read_bytes(self) -> bytes:
+            """Read available key bytes via ``msvcrt``.
+
+            Checks ``kbhit()`` and reads one key.  If the key is a
+            special key (arrow, function key), reads the second byte
+            as well.
+            """
+            result = b""
+            while msvcrt.kbhit():
+                ch = msvcrt.getwch()
+                encoded = ch.encode("utf-8", errors="replace")
+                result += encoded
+                # Special keys: \x00 or \xe0 prefix means the next
+                # byte is the scan code.
+                if ch in ("\x00", "\xe0") and msvcrt.kbhit():
+                    ch2 = msvcrt.getwch()
+                    result += ch2.encode("utf-8", errors="replace")
+            return result
+
+        @property
+        def is_raw(self) -> bool:
+            return self._raw
+
+
+def create_backend() -> InputBackend:
+    """Create the appropriate input backend for the current platform.
+
+    Returns:
+        A :class:`UnixInputBackend` on Unix-like systems or a
+        :class:`WindowsInputBackend` on Windows.
+    """
+    if sys.platform == "win32":
+        return WindowsInputBackend()
+    return UnixInputBackend()
