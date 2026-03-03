@@ -707,6 +707,101 @@ class TestRendererRepr:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Renderer — present with CellBuffer
+# ---------------------------------------------------------------------------
+
+
+class TestRendererPresentCellBuffer:
+    """Tests for Renderer.present() with CellBuffer (Rich renderable)."""
+
+    @staticmethod
+    def _make_renderer() -> Renderer:
+        console = Console(file=io.StringIO(), force_terminal=True)
+        return Renderer(console=console)
+
+    def test_present_cellbuffer(self) -> None:
+        """CellBuffer should be accepted by present() as a Rich renderable."""
+        from wyby.grid import CellBuffer
+
+        renderer = self._make_renderer()
+        buf = CellBuffer(10, 5)
+        buf.put_text(0, 0, "Hello")
+        with renderer:
+            renderer.present(buf)
+            assert renderer.frame_count == 1
+
+    def test_present_styled_cellbuffer(self) -> None:
+        """CellBuffer with styled cells should render without error."""
+        from wyby.grid import Cell, CellBuffer
+
+        renderer = self._make_renderer()
+        buf = CellBuffer(20, 10)
+        buf.fill(Cell(char=".", fg="grey50"))
+        buf.put(5, 5, Cell(char="@", fg="green", bold=True))
+        buf.put_text(0, 0, "HP: 100", fg="red", bold=True)
+        with renderer:
+            renderer.present(buf)
+            assert renderer.frame_count == 1
+
+    def test_present_cellbuffer_multiple_frames(self) -> None:
+        """Multiple CellBuffer presents should increment frame count."""
+        from wyby.grid import CellBuffer
+
+        renderer = self._make_renderer()
+        buf = CellBuffer(5, 3)
+        with renderer:
+            for i in range(5):
+                buf.clear()
+                buf.put_text(0, 0, str(i))
+                renderer.present(buf)
+            assert renderer.frame_count == 5
+
+    def test_present_cellbuffer_output_contains_content(self) -> None:
+        """Content written to CellBuffer should appear in terminal output."""
+        from wyby.grid import CellBuffer
+
+        buf_out = io.StringIO()
+        console = Console(
+            file=buf_out, force_terminal=True, color_system=None, width=10,
+        )
+        renderer = Renderer(console=console)
+        cbuf = CellBuffer(10, 1)
+        cbuf.put_text(0, 0, "Visible")
+        with renderer:
+            renderer.present(cbuf)
+        output = buf_out.getvalue()
+        assert "Visible" in output
+
+    def test_present_cellbuffer_when_not_started_is_noop(self) -> None:
+        """present(CellBuffer) when not started should not raise."""
+        from wyby.grid import CellBuffer
+
+        renderer = self._make_renderer()
+        buf = CellBuffer(5, 3)
+        renderer.present(buf)  # Should not raise
+        assert renderer.frame_count == 0
+
+    def test_present_layerstack_flattened(self) -> None:
+        """LayerStack.flatten() returns a CellBuffer that present() accepts."""
+        from wyby.grid import Cell
+        from wyby.layer import Layer, LayerStack
+
+        renderer = self._make_renderer()
+        stack = LayerStack(10, 5)
+        stack[Layer.BACKGROUND].fill(Cell(char="."))
+        stack[Layer.ENTITIES].put(3, 2, Cell(char="@", fg="green"))
+        flat = stack.flatten()
+        with renderer:
+            renderer.present(flat)
+            assert renderer.frame_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Renderer — package export
+# ---------------------------------------------------------------------------
+
+
 class TestRendererExport:
     """Tests for Renderer availability in the public API."""
 

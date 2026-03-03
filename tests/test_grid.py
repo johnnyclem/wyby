@@ -654,3 +654,160 @@ class TestCellBufferDrawText:
             assert cell is not None
             assert cell.fg == "cyan"
             assert cell.bold is True
+
+
+# ---------------------------------------------------------------------------
+# CellBuffer — Rich renderable protocol
+# ---------------------------------------------------------------------------
+
+
+class TestCellBufferRichConsole:
+    """Tests for CellBuffer.__rich_console__."""
+
+    @staticmethod
+    def _render_to_str(buf: CellBuffer, *, color_system: str | None = None) -> str:
+        """Render a CellBuffer to a string via a Rich Console."""
+        import io
+        from rich.console import Console
+
+        sio = io.StringIO()
+        console = Console(
+            file=sio, force_terminal=True, color_system=color_system,
+            width=buf.width,
+        )
+        console.print(buf, end="")
+        return sio.getvalue()
+
+    def test_blank_buffer_renders_spaces(self) -> None:
+        """A default buffer should render as rows of spaces."""
+        buf = CellBuffer(5, 2)
+        output = self._render_to_str(buf, color_system=None)
+        lines = output.split("\n")
+        # Each line should be 5 spaces (possibly with trailing whitespace
+        # stripped by Rich).
+        for line in lines:
+            if line:
+                assert set(line) <= {" "}
+
+    def test_renders_characters(self) -> None:
+        """Characters written to the buffer should appear in output."""
+        buf = CellBuffer(5, 1)
+        buf.put_text(0, 0, "Hello")
+        output = self._render_to_str(buf, color_system=None)
+        assert "Hello" in output
+
+    def test_renders_multiple_rows(self) -> None:
+        """Each row should appear on a separate line."""
+        buf = CellBuffer(3, 3)
+        buf.put_text(0, 0, "AAA")
+        buf.put_text(0, 1, "BBB")
+        buf.put_text(0, 2, "CCC")
+        output = self._render_to_str(buf, color_system=None)
+        assert "AAA" in output
+        assert "BBB" in output
+        assert "CCC" in output
+
+    def test_styled_cells_produce_ansi(self) -> None:
+        """Cells with fg/bg/bold should produce ANSI escape sequences."""
+        buf = CellBuffer(5, 1)
+        buf.put(0, 0, Cell(char="X", fg="red", bold=True))
+        output = self._render_to_str(buf, color_system="truecolor")
+        # ANSI escape sequences start with \033[
+        assert "\033[" in output
+        assert "X" in output
+
+    def test_default_cells_no_extra_style(self) -> None:
+        """Default cells (space, no style) should not produce ANSI escapes."""
+        buf = CellBuffer(3, 1)
+        output = self._render_to_str(buf, color_system="truecolor")
+        # Strip the Rich cursor/control sequences that wrap the output.
+        # Default spaces should not have color/bold ANSI codes applied to them.
+        # The content between control sequences should be plain spaces.
+        assert "   " in output
+
+    def test_mixed_styled_and_default_cells(self) -> None:
+        """Styled and unstyled cells coexist in the same row."""
+        buf = CellBuffer(5, 1)
+        buf.put(2, 0, Cell(char="@", fg="green"))
+        output = self._render_to_str(buf, color_system="truecolor")
+        assert "@" in output
+        assert "\033[" in output
+
+    def test_fg_colour_applied(self) -> None:
+        """Foreground colour should be present in ANSI output."""
+        buf = CellBuffer(1, 1)
+        buf.put(0, 0, Cell(char="X", fg="red"))
+        output = self._render_to_str(buf, color_system="standard")
+        # Standard red is typically \033[31m or similar.
+        assert "\033[" in output
+        assert "X" in output
+
+    def test_bg_colour_applied(self) -> None:
+        """Background colour should be present in ANSI output."""
+        buf = CellBuffer(1, 1)
+        buf.put(0, 0, Cell(char="X", bg="blue"))
+        output = self._render_to_str(buf, color_system="standard")
+        assert "\033[" in output
+        assert "X" in output
+
+    def test_dim_applied(self) -> None:
+        """Dim attribute should produce ANSI dim escape code."""
+        buf = CellBuffer(1, 1)
+        buf.put(0, 0, Cell(char="D", dim=True))
+        output = self._render_to_str(buf, color_system="truecolor")
+        assert "\033[" in output
+        assert "D" in output
+
+    def test_row_count_matches_height(self) -> None:
+        """The number of non-empty output lines should match buffer height."""
+        buf = CellBuffer(3, 4)
+        buf.fill(Cell(char="."))
+        output = self._render_to_str(buf, color_system=None)
+        lines = [line for line in output.split("\n") if line.strip()]
+        assert len(lines) == 4
+
+    def test_usable_as_rich_renderable(self) -> None:
+        """CellBuffer should be accepted by any Rich consumer."""
+        import io
+        from rich.console import Console
+        from rich.panel import Panel
+
+        buf = CellBuffer(10, 2)
+        buf.put_text(0, 0, "test")
+        sio = io.StringIO()
+        console = Console(file=sio, force_terminal=True, width=20)
+        # Should not raise — CellBuffer is a valid Rich renderable.
+        console.print(Panel(buf))
+
+    def test_1x1_buffer(self) -> None:
+        """Smallest possible buffer renders correctly."""
+        buf = CellBuffer(1, 1)
+        buf.put(0, 0, Cell(char="Z", fg="yellow"))
+        output = self._render_to_str(buf, color_system="truecolor")
+        assert "Z" in output
+
+
+class TestCellBufferRichMeasure:
+    """Tests for CellBuffer.__rich_measure__."""
+
+    def test_measurement_matches_width(self) -> None:
+        """Measurement min and max should both equal the buffer width."""
+        import io
+        from rich.console import Console
+
+        buf = CellBuffer(42, 10)
+        console = Console(file=io.StringIO(), force_terminal=True)
+        measurement = buf.__rich_measure__(console, console.options)
+        assert measurement.minimum == 42
+        assert measurement.maximum == 42
+
+    def test_measurement_1_column(self) -> None:
+        """Single-column buffer reports width 1."""
+        import io
+        from rich.console import Console
+
+        buf = CellBuffer(1, 5)
+        console = Console(file=io.StringIO(), force_terminal=True)
+        measurement = buf.__rich_measure__(console, console.options)
+        assert measurement.minimum == 1
+        assert measurement.maximum == 1

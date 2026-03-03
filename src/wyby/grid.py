@@ -45,6 +45,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from rich.console import Console, ConsoleOptions, RenderResult
+    from rich.measure import Measurement
     from rich.style import Style
 
 # Default character for empty / cleared cells.
@@ -271,6 +273,75 @@ class CellBuffer:
         if 0 <= y < self._height:
             return self._cells[y]
         return None
+
+    # -- Rich renderable protocol -------------------------------------------
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions,
+    ) -> RenderResult:
+        """Yield one :class:`~rich.text.Text` per row for Rich rendering.
+
+        Converts the cell buffer into styled Rich output that can be
+        displayed by any Rich-aware consumer — ``Console.print()``,
+        ``Live.update()``, or :meth:`Renderer.present()
+        <wyby.renderer.Renderer.present>`.
+
+        Each row becomes a :class:`~rich.text.Text` object with per-character
+        styling derived from the cell's ``fg``, ``bg``, ``bold``, and ``dim``
+        attributes.  Rows are yielded as separate renderables so Rich renders
+        each on its own line.
+
+        Caveats:
+            - A :class:`~rich.style.Style` object is allocated for every
+              non-default cell.  For large buffers with many styled cells
+              (e.g., 120×40 = 4 800 cells), this is the main cost.  Default
+              cells (space, no colours, no bold/dim) skip ``Style`` creation.
+            - ``no_wrap=True`` and ``overflow="crop"`` are set on each
+              ``Text`` row.  If the buffer is wider than the console, excess
+              columns are silently clipped rather than wrapping to the next
+              terminal line.  This matches game-grid semantics but means
+              content can be invisible if the console is too narrow.
+            - Only ``color``, ``bgcolor``, ``bold``, and ``dim`` are mapped
+              from :class:`Cell` to :class:`~rich.style.Style`.  Rich style
+              attributes like ``italic``, ``underline``, or ``strike`` are
+              not representable in Cell and therefore not produced here.
+            - Rich imports (``Text``, ``Style``) are deferred to call time
+              so that ``grid.py`` has no module-level Rich dependency.  This
+              keeps the buffer testable without Rich but adds a small
+              per-frame import-lookup cost (negligible after first call due
+              to module caching).
+        """
+        from rich.style import Style as _Style
+        from rich.text import Text
+
+        for y in range(self._height):
+            line = Text(no_wrap=True, overflow="crop")
+            for cell in self._cells[y]:
+                # Skip Style allocation for completely default cells.
+                if cell.fg or cell.bg or cell.bold or cell.dim:
+                    style: _Style | None = _Style(
+                        color=cell.fg,
+                        bgcolor=cell.bg,
+                        bold=cell.bold or None,
+                        dim=cell.dim or None,
+                    )
+                else:
+                    style = None
+                line.append(cell.char, style=style)
+            yield line
+
+    def __rich_measure__(
+        self, console: Console, options: ConsoleOptions,
+    ) -> Measurement:
+        """Report the exact width of the buffer for Rich layout.
+
+        Returns a fixed measurement of ``(width, width)`` — the buffer's
+        column count is both the minimum and maximum width.  This tells
+        Rich not to shrink or expand the renderable during layout.
+        """
+        from rich.measure import Measurement as _Measurement
+
+        return _Measurement(self._width, self._width)
 
     # -- Internals ----------------------------------------------------------
 
