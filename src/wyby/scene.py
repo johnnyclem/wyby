@@ -51,6 +51,7 @@ from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from wyby.entity import Entity
     from wyby.event import Event
 
 _logger = logging.getLogger(__name__)
@@ -127,6 +128,7 @@ class Scene(ABC):
         self._resize_hooks: list[Callable[[int, int], None]] = []
         self._updates_when_paused: bool = False
         self._renders_when_paused: bool = False
+        self._entities: dict[int, Entity] = {}
 
     # ------------------------------------------------------------------
     # Per-scene update/render policy (paused scenes)
@@ -337,6 +339,174 @@ class Scene(ABC):
               when the engine polls).  Do not assume it runs before
               or after ``update()`` / ``render()`` in the same tick.
         """
+
+    # ------------------------------------------------------------------
+    # Entity management
+    # ------------------------------------------------------------------
+
+    @property
+    def entities(self) -> list[Entity]:
+        """A snapshot list of all entities in this scene.
+
+        Returns a new list each call, ordered by insertion order.
+        Mutating the returned list does not affect the scene — use
+        :meth:`add_entity` and :meth:`remove_entity` instead.
+
+        Caveats:
+            - Returns a **copy**, not a live view.  Calling this in a
+              tight loop (e.g. every frame for a large entity count)
+              allocates a new list each time.  For iteration, prefer
+              iterating directly or caching the result per tick.
+            - Insertion order is preserved (dict ordering, Python 3.7+).
+        """
+        return list(self._entities.values())
+
+    def add_entity(self, entity: Entity) -> None:
+        """Add an entity to this scene.
+
+        Args:
+            entity: The entity to add.
+
+        Raises:
+            TypeError: If *entity* is not an :class:`~wyby.entity.Entity`.
+            ValueError: If an entity with the same id is already in
+                this scene.
+
+        Caveats:
+            - **No cross-scene ownership tracking.**  An entity can be
+              added to multiple scenes simultaneously.  The framework
+              does not enforce single-scene ownership — this is the
+              game's responsibility.  Adding the same entity to two
+              active scenes may cause it to be updated or rendered
+              twice per tick.
+            - **No spatial index.**  Adding an entity does not register
+              it in any acceleration structure.  Spatial queries
+              (:meth:`get_entities_at`) are O(n) over all entities.
+              For games with hundreds of entities this is fine; for
+              thousands, consider a spatial hash maintained in your
+              scene subclass.
+            - Duplicate detection is by entity :attr:`~wyby.entity.Entity.id`,
+              not by identity (``is``).  Two different Entity objects
+              with the same id cannot both be in the same scene.
+        """
+        from wyby.entity import Entity as _Entity
+
+        if not isinstance(entity, _Entity):
+            raise TypeError(
+                f"entity must be an Entity instance, got {type(entity).__name__}"
+            )
+        if entity.id in self._entities:
+            raise ValueError(
+                f"Entity with id={entity.id} is already in this scene"
+            )
+        self._entities[entity.id] = entity
+        _logger.debug(
+            "Entity id=%d added to scene %s (count now %d)",
+            entity.id, type(self).__name__, len(self._entities),
+        )
+
+    def remove_entity(self, entity: Entity) -> Entity:
+        """Remove an entity from this scene and return it.
+
+        Args:
+            entity: The entity to remove.
+
+        Returns:
+            The removed entity.
+
+        Raises:
+            TypeError: If *entity* is not an :class:`~wyby.entity.Entity`.
+            KeyError: If the entity is not in this scene.
+
+        Caveats:
+            - Removal is by entity :attr:`~wyby.entity.Entity.id`.  The
+              entity object passed in must have the same id as the one
+              stored; identity (``is``) is not checked.
+            - **Safe during iteration.**  If you need to remove entities
+              while iterating (e.g. despawning dead enemies in
+              ``update``), iterate over a snapshot::
+
+                  for e in list(self.entities):
+                      if e.should_despawn:
+                          self.remove_entity(e)
+
+              Or collect ids to remove after the loop.
+        """
+        from wyby.entity import Entity as _Entity
+
+        if not isinstance(entity, _Entity):
+            raise TypeError(
+                f"entity must be an Entity instance, got {type(entity).__name__}"
+            )
+        if entity.id not in self._entities:
+            raise KeyError(
+                f"Entity with id={entity.id} is not in this scene"
+            )
+        removed = self._entities.pop(entity.id)
+        _logger.debug(
+            "Entity id=%d removed from scene %s (count now %d)",
+            entity.id, type(self).__name__, len(self._entities),
+        )
+        return removed
+
+    def get_entity(self, entity_id: int) -> Entity | None:
+        """Look up an entity by its id.
+
+        Args:
+            entity_id: The integer id to look up.
+
+        Returns:
+            The entity, or ``None`` if no entity with that id is in
+            this scene.
+
+        Caveats:
+            - O(1) lookup via dict.
+        """
+        return self._entities.get(entity_id)
+
+    def get_entities_at(self, x: int, y: int) -> list[Entity]:
+        """Return all entities at the given grid position.
+
+        Args:
+            x: Horizontal grid position (column).
+            y: Vertical grid position (row).
+
+        Returns:
+            A list of entities at ``(x, y)``, in insertion order.
+            Empty if none are found.
+
+        Caveats:
+            - **O(n) scan** over all entities in the scene.  This is
+              fine for scenes with up to a few hundred entities.  For
+              thousands, maintain a spatial index (e.g. a dict keyed
+              by ``(x, y)``) in your scene subclass and update it
+              when entities move.
+            - Checks ``entity.x`` and ``entity.y`` (the grid-cell
+              position), not sub-cell :class:`~wyby.position.Position`
+              component values.  If your entities use the Position
+              component for smooth movement, you may need to convert
+              to grid coordinates before querying.
+        """
+        return [e for e in self._entities.values() if e.x == x and e.y == y]
+
+    def get_entities_by_tag(self, tag: str) -> list[Entity]:
+        """Return all entities that have the given tag.
+
+        Args:
+            tag: The tag string to filter by.
+
+        Returns:
+            A list of matching entities, in insertion order.
+            Empty if none match.
+
+        Caveats:
+            - **O(n) scan** over all entities in the scene.  If you
+              frequently query by tag, consider maintaining a
+              ``dict[str, set[Entity]]`` index in your scene subclass.
+            - Tag matching is exact string equality; no wildcards or
+              pattern matching.
+        """
+        return [e for e in self._entities.values() if e.has_tag(tag)]
 
     # ------------------------------------------------------------------
     # Callback-based hooks (register/remove without subclassing)
