@@ -30,11 +30,11 @@ Usage::
             scene.handle_event(event)
 
 Caveats:
-    - **Z-order is registration order.**  Widgets added later are considered
-      "on top" of widgets added earlier.  This matches the typical draw
-      pattern where later ``draw()`` calls paint over earlier ones.  There
-      is no explicit z-index property — reorder via :meth:`remove` /
-      :meth:`add` if needed.
+    - **Z-order uses widget z_index.**  Hit-testing sorts widgets by
+      :attr:`~wyby.widget.Widget.z_index` (highest = topmost).  Within
+      the same ``z_index``, registration order is the tiebreaker
+      (last-added = topmost).  Changing a widget's ``z_index`` takes
+      effect on the next :meth:`~FocusManager.dispatch` call.
     - **Hit-testing is geometric, not visual.**  The manager uses each
       widget's bounding box (:meth:`~wyby.widget.Widget.contains_point`)
       to determine which widget was clicked.  If a widget's visual content
@@ -90,9 +90,11 @@ _logger = logging.getLogger(__name__)
 class FocusManager:
     """Manages widget focus and routes input events by z-order.
 
-    Widgets are stored in registration order.  For hit-testing, the
-    list is traversed in reverse (last-added = topmost) so that the
-    front-most visible widget receives the click.
+    Widgets are stored in registration order.  For hit-testing, widgets
+    are sorted by :attr:`~wyby.widget.Widget.z_index` (highest first).
+    Within the same ``z_index``, later-added widgets are considered
+    topmost.  This ensures that the visually front-most widget receives
+    the click.
 
     Args:
         widgets: Optional initial sequence of widgets to manage.
@@ -255,6 +257,25 @@ class FocusManager:
         self.set_focus(target)
         return target
 
+    # -- Z-order helpers ----------------------------------------------------
+
+    def _iter_topmost_first(self) -> list[Widget]:
+        """Return widgets sorted topmost-first for hit-testing.
+
+        Sort by z_index descending.  Within the same z_index, reverse
+        registration order (last-added = topmost).  Uses a stable sort
+        on ``(−z_index, −registration_index)`` so that higher z_index
+        and later registration both win.
+        """
+        # enumerate gives registration index.  We negate both keys so
+        # that a normal ascending sort yields descending on both axes.
+        return [
+            w for _, w in sorted(
+                enumerate(self._widgets),
+                key=lambda pair: (-pair[1].z_index, -pair[0]),
+            )
+        ]
+
     # -- Event dispatch -----------------------------------------------------
 
     def dispatch(self, event: Event) -> bool:
@@ -310,9 +331,14 @@ class FocusManager:
         return False
 
     def _dispatch_mouse_press(self, event: MouseEvent) -> bool:
-        """Handle a mouse press by hit-testing in reverse z-order."""
-        # Reverse iteration: last widget = topmost in z-order.
-        for widget in reversed(self._widgets):
+        """Handle a mouse press by hit-testing in z-order (topmost first).
+
+        Widgets are sorted by z_index descending; within the same
+        z_index, later-registered widgets are tested first (reverse
+        registration order).  This matches the visual draw order so
+        the widget that *appears* on top gets the click.
+        """
+        for widget in self._iter_topmost_first():
             if not widget.visible:
                 continue
             if widget.contains_point(event.x, event.y):
@@ -328,14 +354,15 @@ class FocusManager:
     def widget_at(self, x: int, y: int) -> Widget | None:
         """Return the topmost visible widget at (*x*, *y*), or ``None``.
 
-        Uses the same reverse-z-order hit-testing as :meth:`dispatch`.
-        Useful for implementing custom hover or tooltip logic.
+        Uses the same z-order-aware hit-testing as :meth:`dispatch`:
+        highest ``z_index`` first, then reverse registration order
+        within the same ``z_index``.
 
         Caveats:
             - This is a geometric check only.  See module-level caveats
               about bounding-box hit-testing.
         """
-        for widget in reversed(self._widgets):
+        for widget in self._iter_topmost_first():
             if widget.visible and widget.contains_point(x, y):
                 return widget
         return None

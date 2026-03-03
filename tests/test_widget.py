@@ -616,7 +616,8 @@ class TestWidgetSlots:
 
     def test_slots_include_expected_attrs(self) -> None:
         expected = {"_x", "_y", "_width", "_height",
-                    "_visible", "_focused", "_parent", "_children"}
+                    "_visible", "_focused", "_parent", "_children",
+                    "_z_index"}
         assert expected == set(Widget.__slots__)
 
     def test_subclass_can_add_dict(self) -> None:

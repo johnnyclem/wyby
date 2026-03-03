@@ -73,6 +73,11 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
+def _overlay_z_key(widget: Widget) -> int:
+    """Sort key for overlay draw order — ascending z_index."""
+    return widget.z_index
+
+
 def create_console(
     *,
     file: object | None = None,
@@ -363,6 +368,15 @@ class Renderer:
     the terminal.  This allows HUD elements (health bars, score labels,
     mini-maps) to be managed separately from scene rendering.
 
+    **Z-order.**  Overlays are drawn in ascending
+    :attr:`~wyby.widget.Widget.z_index` order.  Within the same
+    ``z_index``, registration order is the tiebreaker (first-added =
+    behind, last-added = in front).  This uses a **stable sort** each
+    frame, so changing a widget's ``z_index`` takes effect on the next
+    :meth:`present` call without re-registering.  The per-frame sort
+    is O(n log n), which is negligible for typical overlay counts
+    (single digits).
+
     Typical usage from the engine's tick loop::
 
         renderer = Renderer(console)
@@ -526,10 +540,9 @@ class Renderer:
     def overlays(self) -> list[Widget]:
         """Read-only copy of registered overlay widgets.
 
-        Overlays are drawn in list order during :meth:`present`: the
-        first overlay registered is drawn first (visually behind later
-        overlays).  This matches the existing convention that draw-order
-        determines visual stacking.
+        Returns overlays in **registration order** (not z-sorted).
+        The z-sorted draw order is computed internally during
+        :meth:`present`.
 
         Returns a shallow copy to prevent external mutation.  Use
         :meth:`add_overlay` and :meth:`remove_overlay` to modify the
@@ -576,9 +589,10 @@ class Renderer:
               Since game loops typically clear and rebuild the buffer
               each frame, this is acceptable.  If the caller needs the
               buffer unmodified after ``present()``, pass a copy.
-            - There is no automatic z-ordering.  Overlays are drawn in
-              registration order.  To change stacking, remove and
-              re-add overlays in the desired order.
+            - Overlays are drawn in ascending ``z_index`` order each
+              frame (stable sort — registration order breaks ties).
+              Changing a widget's ``z_index`` takes effect on the next
+              :meth:`present` call without re-registering.
             - Overlays persist across :meth:`start` / :meth:`stop`
               cycles.  Call :meth:`clear_overlays` to remove them.
             - Overlay widgets are not owned by the renderer.  The
@@ -748,6 +762,10 @@ class Renderer:
               :class:`~wyby.diagnostics.FPSCounter` to measure actual
               throughput at runtime.  See
               ``docs/rendering_performance.md`` for mitigation advice.
+            - **Overlay draw order.**  Overlays are sorted by
+              ``z_index`` (ascending) each frame.  Higher ``z_index``
+              widgets draw on top.  Within the same ``z_index``,
+              registration order is the tiebreaker (stable sort).
             - **Overlay mutation.**  When overlays are registered and
               *renderable* is a :class:`~wyby.grid.CellBuffer`, the
               overlays draw directly into the buffer, mutating it.
@@ -765,9 +783,13 @@ class Renderer:
             return
 
         # Draw registered overlays into CellBuffer renderables.
-        # Overlays are drawn in registration order — later overlays
-        # appear on top of earlier ones.  Only visible overlays are
-        # drawn; hidden ones (visible=False) are skipped.
+        # Overlays are sorted by z_index (ascending) so that higher
+        # z_index widgets draw on top.  The sort is stable, so widgets
+        # with equal z_index keep their registration order (last-added
+        # = topmost within the same z_index).
+        #
+        # Only visible overlays are drawn; hidden ones (visible=False)
+        # are skipped.
         #
         # Caveat: this mutates the caller's CellBuffer.  Game loops
         # typically clear and rebuild the buffer each frame, so this
@@ -775,7 +797,7 @@ class Renderer:
         # (strings, Rich Text, etc.), overlays are silently skipped
         # because Widget.draw() requires a CellBuffer target.
         if self._overlays and isinstance(renderable, CellBuffer):
-            for overlay in self._overlays:
+            for overlay in sorted(self._overlays, key=_overlay_z_key):
                 if overlay.visible:
                     overlay.draw(renderable)
 

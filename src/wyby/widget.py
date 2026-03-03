@@ -47,10 +47,15 @@ Caveats:
       every visible widget each frame.  This matches wyby's explicit
       rendering philosophy — the game loop controls when and what is
       drawn.
-    - **No z-order management.**  Draw order determines visual stacking:
-      widgets drawn later appear on top of widgets drawn earlier.  The
-      caller (scene or UI manager) controls draw order.  A future overlay
-      system (T097) may add z-index tracking.
+    - **Z-order is opt-in.**  Each widget has a ``z_index`` property
+      (default 0) that determines visual stacking when managed by
+      :class:`~wyby.renderer.Renderer` overlays or
+      :class:`~wyby.focus.FocusManager` hit-testing.  Higher z_index
+      values render on top of lower ones.  Widgets with equal z_index
+      fall back to registration order (last-added = topmost).  The
+      z_index is **not** used by ``draw()`` directly — it is the
+      responsibility of the overlay/focus system to sort by z_index
+      before iterating widgets.
     - **Coordinate system.**  Widget ``x``/``y`` are in buffer-space
       (top-left origin, column/row).  There is no local-to-global
       coordinate transform for nested widgets — children must offset
@@ -139,6 +144,7 @@ class Widget(ABC):
     __slots__ = (
         "_x", "_y", "_width", "_height",
         "_visible", "_focused", "_parent", "_children",
+        "_z_index",
     )
 
     def __init__(
@@ -147,6 +153,8 @@ class Widget(ABC):
         y: int = 0,
         width: int = 1,
         height: int = 1,
+        *,
+        z_index: int = 0,
     ) -> None:
         if not isinstance(x, int) or isinstance(x, bool):
             msg = f"x must be an int, got {type(x).__name__}"
@@ -160,11 +168,15 @@ class Widget(ABC):
         if not isinstance(height, int) or isinstance(height, bool):
             msg = f"height must be an int, got {type(height).__name__}"
             raise TypeError(msg)
+        if not isinstance(z_index, int) or isinstance(z_index, bool):
+            msg = f"z_index must be an int, got {type(z_index).__name__}"
+            raise TypeError(msg)
 
         self._x = x
         self._y = y
         self._width = max(_MIN_DIMENSION, min(width, _MAX_DIMENSION))
         self._height = max(_MIN_DIMENSION, min(height, _MAX_DIMENSION))
+        self._z_index = z_index
         self._visible: bool = True
         self._focused: bool = False
         self._parent: Widget | None = None
@@ -221,6 +233,42 @@ class Widget(ABC):
             msg = f"height must be an int, got {type(value).__name__}"
             raise TypeError(msg)
         self._height = max(_MIN_DIMENSION, min(value, _MAX_DIMENSION))
+
+    # -- Z-order ------------------------------------------------------------
+
+    @property
+    def z_index(self) -> int:
+        """Stacking order for overlay draw and hit-test sorting.
+
+        Higher values render on top of lower values.  When two widgets
+        share the same ``z_index``, the system that manages them
+        (e.g., :class:`~wyby.renderer.Renderer` overlays or
+        :class:`~wyby.focus.FocusManager`) uses registration order as
+        the tiebreaker (last-added = topmost).
+
+        Negative values are allowed.  There are no reserved ranges,
+        but a common convention is:
+
+        - ``z_index < 0`` — behind most game content
+        - ``z_index == 0`` — default (game-level UI)
+        - ``z_index > 0`` — above normal UI (tooltips, modals, popups)
+
+        Caveat:
+            Changing ``z_index`` does **not** trigger an automatic
+            re-sort in the Renderer or FocusManager.  The sort happens
+            each frame during :meth:`~wyby.renderer.Renderer.present`
+            and each event during
+            :meth:`~wyby.focus.FocusManager.dispatch`, so the new
+            value takes effect on the next frame/event.
+        """
+        return self._z_index
+
+    @z_index.setter
+    def z_index(self, value: int) -> None:
+        if not isinstance(value, int) or isinstance(value, bool):
+            msg = f"z_index must be an int, got {type(value).__name__}"
+            raise TypeError(msg)
+        self._z_index = value
 
     # -- Visibility ---------------------------------------------------------
 
@@ -482,6 +530,7 @@ class Widget(ABC):
             f"{type(self).__name__}("
             f"x={self._x}, y={self._y}, "
             f"w={self._width}, h={self._height}"
+            f"{f', z={self._z_index}' if self._z_index != 0 else ''}"
             f"{', visible=False' if not self._visible else ''}"
             f"{', focused' if self._focused else ''}"
             f")"
