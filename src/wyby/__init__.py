@@ -49,6 +49,7 @@ from wyby.event import Event, EventQueue
 from wyby.grid import Cell, CellBuffer, clip_to_terminal
 from wyby.unicode import (
     char_width,
+    contains_emoji,
     grapheme_string_width,
     grapheme_width,
     is_wide_char,
@@ -58,8 +59,10 @@ from wyby.unicode import (
 from wyby.layer import Layer, LayerStack
 from wyby.render_warnings import (
     RenderCost,
+    check_emoji_warning,
     check_flicker_risk,
     estimate_render_cost,
+    log_emoji_warning,
     log_render_cost,
 )
 from wyby.renderer import LiveDisplay, Renderer, create_console
@@ -94,7 +97,9 @@ __all__ = [
     "SceneStack",
     "TerminalCapabilities",
     "char_width",
+    "check_emoji_warning",
     "color_system_for_support",
+    "contains_emoji",
     "grapheme_string_width",
     "grapheme_width",
     "check_flicker_risk",
@@ -108,6 +113,7 @@ __all__ = [
     "get_terminal_size",
     "is_wide_char",
     "iter_grapheme_clusters",
+    "log_emoji_warning",
     "log_render_cost",
     "nearest_ansi16",
     "nearest_ansi256",

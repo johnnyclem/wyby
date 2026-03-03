@@ -6,6 +6,7 @@ import pytest
 
 from wyby.unicode import (
     char_width,
+    contains_emoji,
     grapheme_string_width,
     grapheme_width,
     is_wide_char,
@@ -969,3 +970,75 @@ class TestGraphemeStringWidth:
         # "He" (2) + "e\u0301" (1) + "中" (2) = 5
         text = "He" + "e\u0301" + "中"
         assert grapheme_string_width(text) == 5
+
+
+# ---------------------------------------------------------------------------
+# contains_emoji
+# ---------------------------------------------------------------------------
+
+
+class TestContainsEmoji:
+    """Tests for contains_emoji()."""
+
+    def test_plain_ascii(self) -> None:
+        assert contains_emoji("Hello, world!") is False
+
+    def test_empty_string(self) -> None:
+        assert contains_emoji("") is False
+
+    def test_box_drawing(self) -> None:
+        """Box-drawing characters are not emoji."""
+        assert contains_emoji("┌──┐│└┘") is False
+
+    def test_block_elements(self) -> None:
+        """Block elements are not emoji."""
+        assert contains_emoji("█▓▒░▀▄") is False
+
+    def test_cjk(self) -> None:
+        """CJK ideographs are not emoji."""
+        assert contains_emoji("中文日本語") is False
+
+    def test_combining_marks(self) -> None:
+        """Combining diacriticals are not emoji."""
+        assert contains_emoji("e\u0301") is False
+
+    def test_simple_emoji(self) -> None:
+        """Common pictograph emoji are detected."""
+        assert contains_emoji("🌍") is True
+
+    def test_face_emoji(self) -> None:
+        """Emoticon emoji are detected."""
+        assert contains_emoji("😀") is True
+
+    def test_emoji_in_text(self) -> None:
+        """Emoji embedded in plain text."""
+        assert contains_emoji("Hello 🌍 world") is True
+
+    def test_vs16_presence(self) -> None:
+        """VS16 (emoji presentation selector) triggers detection."""
+        assert contains_emoji("#\uFE0F") is True
+
+    def test_regional_indicator(self) -> None:
+        """Regional indicator symbols (flag emoji) are detected."""
+        assert contains_emoji("\U0001F1FA\U0001F1F8") is True
+
+    def test_skin_tone_modifier(self) -> None:
+        """Emoji skin tone modifiers are detected."""
+        assert contains_emoji("\U0001F3FB") is True
+
+    def test_zwj_sequence(self) -> None:
+        """ZWJ emoji sequence (family) is detected."""
+        assert contains_emoji("\U0001F468\u200D\U0001F469\u200D\U0001F467") is True
+
+    def test_misc_symbols(self) -> None:
+        """Characters in Miscellaneous Symbols range (e.g. sun, star)."""
+        assert contains_emoji("\u2600") is True  # ☀ BLACK SUN WITH RAYS
+        assert contains_emoji("\u2B50") is True  # ⭐ WHITE MEDIUM STAR
+
+    def test_transport_emoji(self) -> None:
+        """Transport and Map emoji range."""
+        assert contains_emoji("\U0001F680") is True  # 🚀 ROCKET
+
+    def test_arrows_are_not_emoji(self) -> None:
+        """Simple arrows outside emoji ranges are not emoji."""
+        assert contains_emoji("→←↑↓") is False

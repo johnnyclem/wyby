@@ -78,6 +78,8 @@ from __future__ import annotations
 import enum
 import logging
 
+from wyby.unicode import contains_emoji
+
 _logger = logging.getLogger(__name__)
 
 
@@ -297,3 +299,103 @@ def log_render_cost(
             _logger.warning(warning)
 
     return cost
+
+
+# -- Emoji rendering warnings -----------------------------------------------
+
+# Emoji rendering in terminal emulators is notoriously inconsistent.
+# The core problems are:
+#
+# 1. **Width disagreement.**  The Unicode standard assigns most emoji a
+#    width of 2 (East Asian Width "W"), but terminals disagree.  Some
+#    render emoji at 1 column, others at 2, and some vary by codepoint.
+#    This causes grid misalignment: if wyby assumes width 2 but the
+#    terminal renders at width 1, subsequent cells shift left by one
+#    column — corrupting the entire row.
+#
+# 2. **Multi-codepoint sequences.**  ZWJ sequences (👨‍👩‍👧‍👦), flag emoji
+#    (🇺🇸 = two regional indicators), skin tone modifiers (👋🏽), and
+#    keycap sequences (3️⃣) are composed of multiple codepoints.  wyby's
+#    Cell model stores one character per cell, so multi-codepoint emoji
+#    cannot be represented faithfully.  Even if stored as a grapheme
+#    cluster in a single cell, the terminal may render it at an
+#    unexpected width (1, 2, or more columns).
+#
+# 3. **Font fallback.**  Emoji rendering depends on the terminal's font
+#    stack.  If the font lacks a glyph for a particular emoji, the
+#    terminal may show a replacement character (□ or ?), a blank cell,
+#    or a text-style fallback — each potentially at a different width.
+#
+# 4. **Text vs. emoji presentation.**  Characters like ☀ (U+2600) have
+#    both text and emoji presentations.  Adding VS16 (U+FE0F) requests
+#    emoji presentation, but not all terminals honour this.  The
+#    resulting width may be 1 or 2 depending on the terminal's decision.
+#
+# For reliable game rendering, use ASCII, box-drawing (─│┌┐└┘├┤┬┴┼),
+# block elements (█▓▒░▀▄▌▐), and simple Unicode symbols.
+
+
+_EMOJI_WARNING = (
+    "Text contains emoji characters, which render inconsistently across "
+    "terminal emulators. Problems include: (1) width disagreement — some "
+    "terminals display emoji as 1 column, others as 2, causing grid "
+    "misalignment; (2) multi-codepoint sequences (ZWJ, flags, skin tones) "
+    "cannot be faithfully stored in wyby's one-character-per-cell model; "
+    "(3) missing font glyphs may produce replacement characters at "
+    "unexpected widths. For reliable rendering, use ASCII, box-drawing, "
+    "block elements, and simple Unicode symbols instead."
+)
+
+
+def check_emoji_warning(text: str) -> str | None:
+    """Return a warning string if *text* contains emoji, else ``None``.
+
+    Scans *text* for emoji characters and multi-codepoint emoji sequences.
+    If any are found, returns a human-readable advisory explaining why
+    emoji rendering is unreliable in terminal grids.
+
+    This is intended for developer diagnostics — call it when loading
+    tile sets, sprite definitions, or user-supplied text that will be
+    rendered in a :class:`~wyby.grid.CellBuffer`.
+
+    Args:
+        text: The string to scan for emoji.
+
+    Returns:
+        A warning string describing emoji rendering risks, or ``None``
+        if no emoji characters were detected.
+
+    Caveats:
+        - A ``None`` return does **not** guarantee correct rendering.
+          Some non-emoji Unicode characters also render inconsistently
+          across terminals (e.g. Ambiguous-width characters in CJK
+          locales).  This function only checks for emoji specifically.
+        - Detection is heuristic-based (Unicode range checks) and may
+          flag some non-emoji characters that share blocks with emoji.
+          See :func:`~wyby.unicode.contains_emoji` for details.
+    """
+    if contains_emoji(text):
+        return _EMOJI_WARNING
+    return None
+
+
+def log_emoji_warning(text: str) -> bool:
+    """Log a warning if *text* contains emoji characters.
+
+    Convenience wrapper around :func:`check_emoji_warning` that logs the
+    advisory at ``WARNING`` level if emoji are detected, or at ``DEBUG``
+    level if the text is clean.
+
+    Args:
+        text: The string to scan for emoji.
+
+    Returns:
+        ``True`` if emoji were detected (and a warning was logged),
+        ``False`` otherwise.
+    """
+    warning = check_emoji_warning(text)
+    if warning:
+        _logger.warning(warning)
+        return True
+    _logger.debug("No emoji detected in text — rendering should be consistent.")
+    return False

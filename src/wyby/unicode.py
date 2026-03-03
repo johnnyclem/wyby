@@ -362,3 +362,100 @@ def grapheme_string_width(text: str) -> int:
     1
     """
     return sum(grapheme_width(cluster) for cluster in iter_grapheme_clusters(text))
+
+
+# ---------------------------------------------------------------------------
+# Emoji detection
+# ---------------------------------------------------------------------------
+
+# Common emoji Unicode ranges.  This is not exhaustive — Unicode defines
+# emoji via properties (Emoji, Emoji_Presentation, Emoji_Component) that
+# are not directly accessible from the standard library.  These ranges
+# cover the vast majority of emoji encountered in practice.
+_EMOJI_RANGES: list[tuple[int, int]] = [
+    (0x2600, 0x27BF),    # Miscellaneous Symbols, Dingbats
+    (0x2B50, 0x2B55),    # Stars, circles
+    (0x1F300, 0x1F5FF),  # Misc Symbols and Pictographs
+    (0x1F600, 0x1F64F),  # Emoticons
+    (0x1F680, 0x1F6FF),  # Transport and Map Symbols
+    (0x1F700, 0x1F77F),  # Alchemical Symbols
+    (0x1F780, 0x1F7FF),  # Geometric Shapes Extended
+    (0x1F800, 0x1F8FF),  # Supplemental Arrows-C
+    (0x1F900, 0x1F9FF),  # Supplemental Symbols and Pictographs
+    (0x1FA00, 0x1FA6F),  # Chess Symbols
+    (0x1FA70, 0x1FAFF),  # Symbols and Pictographs Extended-A
+    (0x231A, 0x231B),    # Watch, Hourglass
+    (0x23E9, 0x23F3),    # Play buttons, hourglasses
+    (0x23F8, 0x23FA),    # Pause, stop, record
+    (0x25AA, 0x25AB),    # Small squares
+    (0x25FB, 0x25FE),    # Medium squares
+    (0x2934, 0x2935),    # Curved arrows
+    (0x2B05, 0x2B07),    # Arrows
+]
+
+
+def _is_emoji_codepoint(cp: int) -> bool:
+    """Return True if *cp* falls in a common emoji codepoint range."""
+    for start, end in _EMOJI_RANGES:
+        if start <= cp <= end:
+            return True
+    return False
+
+
+def contains_emoji(text: str) -> bool:
+    """Return ``True`` if *text* contains any emoji characters.
+
+    Checks for:
+
+    - Single codepoints in common emoji Unicode ranges (emoticons,
+      pictographs, transport symbols, etc.)
+    - Emoji presentation selector (VS16 / U+FE0F)
+    - Regional indicator symbols (flag emoji)
+    - Emoji skin tone modifiers (Fitzpatrick scale)
+    - Zero-Width Joiner sequences (ZWJ emoji)
+
+    This function is intentionally conservative — it may return ``True``
+    for some non-emoji characters that share Unicode blocks with emoji,
+    but it will not miss common emoji.
+
+    Caveats
+    -------
+    - Unicode defines emoji via character properties (``Emoji``,
+      ``Emoji_Presentation``) that are not accessible from Python's
+      :mod:`unicodedata` module.  This function uses heuristic range
+      checks that cover common emoji but are not exhaustive.
+    - Some characters in the detected ranges (e.g. U+2600 BLACK SUN
+      WITH RAYS) have dual text/emoji presentation and may render as
+      a monochrome symbol on some terminals, not as a colourful emoji.
+
+    Parameters
+    ----------
+    text : str
+        The string to scan for emoji.
+
+    Returns
+    -------
+    bool
+        ``True`` if at least one emoji character or sequence is found.
+
+    Examples
+    --------
+    >>> contains_emoji("Hello")
+    False
+    >>> contains_emoji("Hello 🌍")
+    True
+    >>> contains_emoji("Flag: \\U0001F1FA\\U0001F1F8")  # 🇺🇸
+    True
+    """
+    for ch in text:
+        cp = ord(ch)
+        if _is_emoji_codepoint(cp):
+            return True
+        if _is_regional_indicator(ch):
+            return True
+        if _is_emoji_modifier(ch):
+            return True
+        # VS16 (emoji presentation selector) signals emoji intent.
+        if cp == 0xFE0F:
+            return True
+    return False

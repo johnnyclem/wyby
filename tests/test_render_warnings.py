@@ -11,8 +11,10 @@ from wyby.render_warnings import (
     LIGHT_CELL_LIMIT,
     MODERATE_CELL_LIMIT,
     RenderCost,
+    check_emoji_warning,
     check_flicker_risk,
     estimate_render_cost,
+    log_emoji_warning,
     log_render_cost,
 )
 
@@ -350,3 +352,107 @@ class TestPackageExports:
     def test_log_render_cost_in_all(self) -> None:
         import wyby
         assert "log_render_cost" in wyby.__all__
+
+    def test_check_emoji_warning_importable(self) -> None:
+        from wyby import check_emoji_warning as cew
+        assert cew is check_emoji_warning
+
+    def test_log_emoji_warning_importable(self) -> None:
+        from wyby import log_emoji_warning as lew
+        assert lew is log_emoji_warning
+
+    def test_check_emoji_warning_in_all(self) -> None:
+        import wyby
+        assert "check_emoji_warning" in wyby.__all__
+
+    def test_log_emoji_warning_in_all(self) -> None:
+        import wyby
+        assert "log_emoji_warning" in wyby.__all__
+
+    def test_contains_emoji_in_all(self) -> None:
+        import wyby
+        assert "contains_emoji" in wyby.__all__
+
+
+# ---------------------------------------------------------------------------
+# check_emoji_warning
+# ---------------------------------------------------------------------------
+
+
+class TestCheckEmojiWarning:
+    """Tests for check_emoji_warning()."""
+
+    def test_returns_none_for_plain_ascii(self) -> None:
+        assert check_emoji_warning("Hello, world!") is None
+
+    def test_returns_none_for_empty_string(self) -> None:
+        assert check_emoji_warning("") is None
+
+    def test_returns_none_for_box_drawing(self) -> None:
+        assert check_emoji_warning("┌──┐│└┘") is None
+
+    def test_returns_none_for_cjk(self) -> None:
+        assert check_emoji_warning("中文") is None
+
+    def test_returns_warning_for_emoji(self) -> None:
+        warning = check_emoji_warning("Hello 🌍")
+        assert warning is not None
+
+    def test_warning_mentions_width_disagreement(self) -> None:
+        warning = check_emoji_warning("🌍")
+        assert warning is not None
+        assert "width" in warning.lower()
+
+    def test_warning_mentions_multi_codepoint(self) -> None:
+        warning = check_emoji_warning("🌍")
+        assert warning is not None
+        assert "multi-codepoint" in warning.lower()
+
+    def test_warning_mentions_alternatives(self) -> None:
+        """Warning should suggest safer alternatives."""
+        warning = check_emoji_warning("🌍")
+        assert warning is not None
+        assert "box-drawing" in warning.lower()
+
+    def test_warning_for_face_emoji(self) -> None:
+        assert check_emoji_warning("😀") is not None
+
+    def test_warning_for_flag_emoji(self) -> None:
+        assert check_emoji_warning("\U0001F1FA\U0001F1F8") is not None
+
+    def test_warning_for_vs16(self) -> None:
+        assert check_emoji_warning("#\uFE0F") is not None
+
+
+# ---------------------------------------------------------------------------
+# log_emoji_warning
+# ---------------------------------------------------------------------------
+
+
+class TestLogEmojiWarning:
+    """Tests for log_emoji_warning()."""
+
+    def test_returns_false_for_clean_text(self) -> None:
+        assert log_emoji_warning("Hello") is False
+
+    def test_returns_true_for_emoji(self) -> None:
+        assert log_emoji_warning("Hello 🌍") is True
+
+    def test_logs_warning_for_emoji(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger="wyby.render_warnings"):
+            log_emoji_warning("Hello 🌍")
+        assert any(r.levelno == logging.WARNING for r in caplog.records)
+        assert any("emoji" in r.message.lower() for r in caplog.records)
+
+    def test_logs_debug_for_clean_text(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.DEBUG, logger="wyby.render_warnings"):
+            log_emoji_warning("Hello")
+        debug_records = [
+            r for r in caplog.records if r.levelno == logging.DEBUG
+        ]
+        assert len(debug_records) >= 1
+        assert any("no emoji" in r.message.lower() for r in debug_records)
