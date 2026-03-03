@@ -69,6 +69,28 @@ class InputBackend(abc.ABC):
         """
 
     @abc.abstractmethod
+    def has_input(self) -> bool:
+        """Check whether input bytes are available without consuming them.
+
+        This is a non-blocking peek — it returns ``True`` if at least
+        one byte is ready to be read, ``False`` otherwise.  No bytes
+        are consumed; a subsequent :meth:`read_bytes` call will still
+        return them.
+
+        Must be called while in raw mode.
+
+        Caveats:
+            - A ``True`` return means at least one byte is available,
+              but that byte may be part of an incomplete ANSI escape
+              sequence (e.g., a lone ``ESC`` byte that hasn't been
+              followed by ``[`` yet).  Use :meth:`read_bytes` and the
+              parser to get complete key events.
+            - On Unix, this uses ``select.select`` with a zero timeout.
+              On Windows, this uses ``msvcrt.kbhit()``.  Both are
+              non-blocking but have platform-specific edge cases.
+        """
+
+    @abc.abstractmethod
     def read_bytes(self) -> bytes:
         """Non-blocking read of all available bytes from stdin.
 
@@ -139,6 +161,20 @@ if sys.platform != "win32":
             self._old_settings = None
             _logger.debug("Restored cooked mode on fd %d", self._fd)
 
+        def has_input(self) -> bool:
+            """Check for available input via ``select`` without consuming.
+
+            Caveats:
+                - Uses ``select.select`` with a zero timeout, same as
+                  :meth:`read_bytes`.  The cost is negligible for a
+                  single file descriptor.
+                - A ``True`` result does not guarantee a complete key
+                  event — the available byte(s) may be the start of a
+                  multi-byte ANSI escape sequence.
+            """
+            readable, _, _ = select.select([self._fd], [], [], 0)
+            return bool(readable)
+
         def read_bytes(self) -> bytes:
             """Non-blocking read via ``select`` + ``os.read``.
 
@@ -200,6 +236,16 @@ if sys.platform == "win32":
 
         def exit_raw_mode(self) -> None:
             self._raw = False
+
+        def has_input(self) -> bool:
+            """Check for available input via ``msvcrt.kbhit()``.
+
+            Caveats:
+                - ``msvcrt.kbhit()`` returns ``True`` if a key press
+                  is waiting in the console input buffer.  This is a
+                  true peek — no characters are consumed.
+            """
+            return bool(msvcrt.kbhit())
 
         def read_bytes(self) -> bytes:
             """Read available key bytes via ``msvcrt``.

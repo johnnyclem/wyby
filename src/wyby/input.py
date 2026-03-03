@@ -420,6 +420,53 @@ class InputManager:
         self._started = False
         _logger.debug("InputManager stopped")
 
+    def has_input(self) -> bool:
+        """Check whether key press data is available (non-blocking peek).
+
+        Returns ``True`` if at least one byte is waiting in the stdin
+        buffer, ``False`` otherwise.  No input is consumed — a
+        subsequent :meth:`poll` call will still return the pending
+        events.
+
+        This is useful in game loops that want to skip input processing
+        when nothing has been pressed, or that need to check for input
+        availability without committing to a full parse::
+
+            with InputManager() as manager:
+                while running:
+                    if manager.has_input():
+                        events = manager.poll()
+                        handle_input(events)
+                    update_game_state()
+                    render()
+
+        Raises:
+            RuntimeError: If the manager has not been started.
+
+        Caveats:
+            - This is a byte-level check, not a key-event-level check.
+              A ``True`` return means raw bytes are available, but those
+              bytes may form an incomplete ANSI escape sequence (e.g.,
+              just the ``ESC`` byte before the ``[`` arrives).  In
+              practice, escape sequences arrive atomically, so this is
+              rarely an issue.
+            - On Unix, uses ``select.select`` with a zero timeout.  On
+              Windows, uses ``msvcrt.kbhit()``.  Both return
+              immediately without blocking.
+            - Terminal key-repeat is OS-controlled.  Holding a key
+              generates repeated bytes at the OS repeat rate, which
+              this method will detect.
+            - This method cannot distinguish between "a key was pressed"
+              and "stdin has data" (e.g., pasted text).  Pasted text
+              will also cause ``True`` to be returned.
+        """
+        if not self._started:
+            raise RuntimeError(
+                "InputManager.has_input() called before start().  "
+                "Call start() first or use the context manager."
+            )
+        return self._backend.has_input()
+
     def poll(self) -> list[KeyEvent]:
         """Read and parse all available key presses (non-blocking).
 

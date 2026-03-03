@@ -343,6 +343,9 @@ class _MockBackend:
     def exit_raw_mode(self) -> None:
         self._raw = False
 
+    def has_input(self) -> bool:
+        return len(self._data) > 0
+
     def read_bytes(self) -> bytes:
         data = self._data
         self._data = b""
@@ -449,6 +452,75 @@ class TestInputManager:
         mgr.start()
         assert repr(mgr) == "InputManager(started=True)"
         mgr.stop()
+
+
+# ---------------------------------------------------------------------------
+# has_input — non-blocking key press detection
+# ---------------------------------------------------------------------------
+
+
+class TestHasInput:
+    """Non-blocking key press detection via has_input()."""
+
+    def test_no_input_returns_false(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        assert mgr.has_input() is False
+        mgr.stop()
+
+    def test_with_input_returns_true(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        backend.feed(b"a")
+        assert mgr.has_input() is True
+        mgr.stop()
+
+    def test_does_not_consume_input(self) -> None:
+        """has_input() is a peek — poll() still returns the events."""
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        backend.feed(b"x")
+        assert mgr.has_input() is True
+        events = mgr.poll()
+        assert events == [KeyEvent(key="x")]
+        mgr.stop()
+
+    def test_false_after_poll_consumes(self) -> None:
+        """After poll() consumes all input, has_input() returns False."""
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        backend.feed(b"a")
+        mgr.poll()
+        assert mgr.has_input() is False
+        mgr.stop()
+
+    def test_before_start_raises(self) -> None:
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        with pytest.raises(RuntimeError, match="has_input.*before start"):
+            mgr.has_input()
+
+    def test_with_escape_sequence(self) -> None:
+        """Detects available input even when it's an ANSI escape sequence."""
+        backend = _MockBackend()
+        mgr = InputManager(backend=backend)
+        mgr.start()
+        backend.feed(b"\x1b[A")
+        assert mgr.has_input() is True
+        events = mgr.poll()
+        assert events == [KeyEvent(key="up")]
+        mgr.stop()
+
+    def test_with_context_manager(self) -> None:
+        backend = _MockBackend()
+        with InputManager(backend=backend) as mgr:
+            assert mgr.has_input() is False
+            backend.feed(b"z")
+            assert mgr.has_input() is True
 
 
 # ---------------------------------------------------------------------------
