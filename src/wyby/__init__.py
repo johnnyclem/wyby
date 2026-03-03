@@ -52,7 +52,7 @@ from wyby.dithering import (
 )
 from wyby.entity import Entity
 from wyby.position import Position
-from wyby.sprite import Sprite, from_image, from_text
+from wyby.sprite import Sprite, from_image, from_text, load_sprite_sheet
 from wyby.transforms import (
     flip_h,
     flip_v,
@@ -218,6 +218,7 @@ __all__ = [
     "Sprite",
     "from_image",
     "from_text",
+    "load_sprite_sheet",
     "load_svg",
     "string_width",
     "Cut",

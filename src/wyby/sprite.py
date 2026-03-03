@@ -635,3 +635,208 @@ def from_image(
         len(entities), width, height,
     )
     return entities
+
+
+def load_sprite_sheet(
+    text: str,
+    frame_width: int,
+    frame_height: int,
+    *,
+    names: list[str] | None = None,
+    origin_x: int = 0,
+    origin_y: int = 0,
+    style: Style | None = None,
+    skip_whitespace: bool = True,
+) -> dict[str, list[Entity]]:
+    """Extract fixed-size sprite frames from a text-based sprite sheet.
+
+    Treats *text* as a grid of character cells and slices it into
+    rectangular frames of *frame_width* × *frame_height*.  Frames are
+    read left-to-right, then top-to-bottom (row-major order).  Each
+    frame is converted to a list of :class:`~wyby.entity.Entity`
+    instances using the same logic as :func:`from_text`.
+
+    Example — a sprite sheet with two 3×3 frames side by side::
+
+        sheet = (
+            "###.@.\\n"
+            "# #.@.\\n"
+            "###.@."
+        )
+        frames = load_sprite_sheet(sheet, frame_width=3, frame_height=3)
+        # frames["0"] → 8 entities (the '#' box)
+        # frames["1"] → 3 entities (the '@' column)
+
+    Args:
+        text: The sprite sheet text.  Lines are split on ``'\\n'``.
+            Carriage returns (``'\\r'``) are stripped.
+        frame_width: Width of each frame in columns.  Must be >= 1.
+        frame_height: Height of each frame in rows.  Must be >= 1.
+        names: Optional list of names for the extracted frames.  If
+            provided, its length must match the number of frames in the
+            sheet.  If ``None``, frames are named ``"0"``, ``"1"``, etc.
+        origin_x: X offset applied to every entity within each frame.
+            Defaults to 0.  Entity positions are relative to the
+            frame's top-left corner, not the sheet.
+        origin_y: Y offset applied to every entity within each frame.
+            Defaults to 0.
+        style: Optional :class:`~rich.style.Style` applied to every
+            Sprite.  Defaults to ``Style.null()`` (terminal defaults).
+        skip_whitespace: If ``True`` (the default), space characters
+            do not produce entities.  Set to ``False`` to include
+            spaces.
+
+    Returns:
+        A dict mapping frame name → list of
+        :class:`~wyby.entity.Entity`.  Each entity carries a
+        :class:`Sprite` component.  Entity positions are relative to
+        the frame's own top-left corner (offset by *origin_x*,
+        *origin_y*), **not** the sheet coordinates.
+
+    Raises:
+        TypeError: If *text* is not a string.
+        TypeError: If *frame_width* or *frame_height* is not an int.
+        TypeError: If *origin_x* or *origin_y* is not an int.
+        ValueError: If *text* is empty.
+        ValueError: If *frame_width* or *frame_height* is less than 1.
+        ValueError: If *names* length does not match the frame count.
+
+    Caveats:
+        - **Frames must tile evenly.**  Columns that don't fill a
+          complete frame width are ignored (truncated).  Rows that
+          don't fill a complete frame height are ignored.  No warning
+          is emitted — check your sheet dimensions if frames are
+          missing.
+        - **Each character becomes a separate entity.**  The same
+          memory caveat as :func:`from_text` applies — a 10×10 frame
+          produces up to 100 entities.  For large frames, consider
+          drawing directly into the :class:`~wyby.grid.CellBuffer`.
+        - **Short lines are padded with spaces.**  If a line in the
+          sheet is shorter than the full sheet width, missing columns
+          are treated as spaces.  This means frames near the right edge
+          of short lines may contain fewer entities than expected.
+        - **Wide characters (CJK) advance by 2 columns** within a
+          frame, same as :func:`from_text`.  A wide character that
+          straddles a frame boundary will be included in the left
+          frame.
+        - **No per-frame styling.**  All frames share the same *style*.
+          To apply different styles per frame, modify the Sprite styles
+          on the returned entities after extraction.
+        - **Frame names must be unique.**  If *names* contains
+          duplicates, later frames overwrite earlier ones in the
+          returned dict.
+        - **Entities have auto-assigned IDs**, same as :func:`from_text`.
+    """
+    # --- Validate types ---
+    if not isinstance(text, str):
+        raise TypeError(
+            f"text must be a string, got {type(text).__name__}"
+        )
+    if not isinstance(frame_width, int) or isinstance(frame_width, bool):
+        raise TypeError(
+            f"frame_width must be an int, got {type(frame_width).__name__}"
+        )
+    if not isinstance(frame_height, int) or isinstance(frame_height, bool):
+        raise TypeError(
+            f"frame_height must be an int, got {type(frame_height).__name__}"
+        )
+    if not isinstance(origin_x, int) or isinstance(origin_x, bool):
+        raise TypeError(
+            f"origin_x must be an int, got {type(origin_x).__name__}"
+        )
+    if not isinstance(origin_y, int) or isinstance(origin_y, bool):
+        raise TypeError(
+            f"origin_y must be an int, got {type(origin_y).__name__}"
+        )
+
+    # --- Validate values ---
+    cleaned = text.replace("\r", "")
+    if not cleaned:
+        raise ValueError("text must not be empty")
+    if frame_width < 1:
+        raise ValueError(
+            f"frame_width must be >= 1, got {frame_width}"
+        )
+    if frame_height < 1:
+        raise ValueError(
+            f"frame_height must be >= 1, got {frame_height}"
+        )
+
+    from wyby.entity import Entity as _Entity
+    from wyby.unicode import grapheme_string_width as _string_width
+    from wyby.unicode import grapheme_width as _grapheme_width
+    from wyby.unicode import iter_grapheme_clusters as _iter_clusters
+
+    lines = cleaned.split("\n")
+
+    # Determine sheet dimensions in display columns (not codepoints).
+    # Wide characters (CJK, emoji) occupy 2 columns, so len() is wrong.
+    sheet_width = max(_string_width(line) for line in lines) if lines else 0
+    sheet_height = len(lines)
+
+    # Number of frames that fit in each direction.
+    cols_of_frames = sheet_width // frame_width
+    rows_of_frames = sheet_height // frame_height
+    total_frames = cols_of_frames * rows_of_frames
+
+    # Validate names if provided.
+    if names is not None:
+        if len(names) != total_frames:
+            raise ValueError(
+                f"names length ({len(names)}) does not match frame count "
+                f"({total_frames})"
+            )
+
+    frames: dict[str, list[_Entity]] = {}
+
+    for frame_idx in range(total_frames):
+        # Grid position of this frame in the sheet.
+        fc = frame_idx % cols_of_frames
+        fr = frame_idx // cols_of_frames
+
+        # Character offsets into the sheet.
+        x_start = fc * frame_width
+        y_start = fr * frame_height
+
+        frame_name = names[frame_idx] if names is not None else str(frame_idx)
+        entities: list[_Entity] = []
+
+        for row_offset in range(frame_height):
+            line_idx = y_start + row_offset
+            if line_idx >= len(lines):
+                break
+            line = lines[line_idx]
+
+            # Walk grapheme clusters to find those within our frame's
+            # column range.  We must track column positions because
+            # wide characters advance by 2.
+            col = 0
+            for grapheme in _iter_clusters(line):
+                w = _grapheme_width(grapheme)
+                if w == 0:
+                    continue
+
+                # Check if this grapheme starts within our frame's
+                # column range.
+                if col >= x_start and col < x_start + frame_width:
+                    if not (skip_whitespace and grapheme == " "):
+                        entity = _Entity(
+                            x=origin_x + (col - x_start),
+                            y=origin_y + row_offset,
+                        )
+                        entity.add_component(Sprite(grapheme, style))
+                        entities.append(entity)
+
+                col += w
+
+                # Past this frame's columns — skip rest of line.
+                if col >= x_start + frame_width:
+                    break
+
+        frames[frame_name] = entities
+
+    _logger.debug(
+        "load_sprite_sheet extracted %d frames (%d×%d each) from %d×%d sheet",
+        total_frames, frame_width, frame_height, sheet_width, sheet_height,
+    )
+    return frames
