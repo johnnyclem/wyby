@@ -112,7 +112,7 @@ from wyby.diagnostics import FPSCounter
 from wyby.event import EventQueue
 from wyby.input import InputManager
 from wyby.renderer import LiveDisplay, create_console
-from wyby.scene import SceneStack
+from wyby.scene import Scene, SceneStack
 from wyby.signal_handlers import SignalHandler
 
 if TYPE_CHECKING:
@@ -684,6 +684,81 @@ class Engine:
         Only the top scene receives updates and renders each tick.
         """
         return self._scene_stack
+
+    def push_scene(self, scene: Scene) -> None:
+        """Push a scene onto the top of the scene stack.
+
+        Convenience wrapper around ``self.scenes.push(scene)``.
+
+        The previous top scene (if any) receives :meth:`Scene.on_pause`
+        before the new scene's :meth:`Scene.on_enter` is called.
+
+        Args:
+            scene: The scene to push.
+
+        Raises:
+            TypeError: If *scene* is not a :class:`Scene` instance.
+            RuntimeError: If the stack has reached its ``max_depth``.
+
+        Caveats:
+            - This method is not safe to call from within a scene's
+              ``update()`` or ``render()`` — it mutates the stack
+              immediately, which can confuse the current tick's
+              update/render sequence.  Prefer posting an event or
+              deferring the transition until the next tick.
+        """
+        self._scene_stack.push(scene)
+
+    def pop_scene(self) -> Scene:
+        """Remove and return the top scene from the stack.
+
+        Convenience wrapper around ``self.scenes.pop()``.
+
+        The popped scene receives :meth:`Scene.on_exit`. If there is a
+        scene beneath it, that scene receives :meth:`Scene.on_resume`.
+
+        Returns:
+            The scene that was removed.
+
+        Raises:
+            RuntimeError: If the stack is empty.
+
+        Caveats:
+            - Popping the last scene leaves the stack empty. The engine
+              will continue running (calling ``run()`` won't crash) but
+              no scene will be updated or rendered until a new scene is
+              pushed.
+            - Like :meth:`push_scene`, calling this mid-tick from within
+              ``update()`` or ``render()`` mutates the stack immediately.
+        """
+        return self._scene_stack.pop()
+
+    def replace_scene(self, scene: Scene) -> Scene:
+        """Replace the top scene with a new one.
+
+        Convenience wrapper around ``self.scenes.replace(scene)``.
+
+        The old top scene receives :meth:`Scene.on_exit`, then the new
+        scene receives :meth:`Scene.on_enter`. The scene below (if any)
+        does **not** receive ``on_pause`` or ``on_resume`` — a replace
+        is a lateral transition, not a push/pop pair.
+
+        Args:
+            scene: The new scene to place on top.
+
+        Returns:
+            The scene that was replaced.
+
+        Raises:
+            TypeError: If *scene* is not a :class:`Scene` instance.
+            RuntimeError: If the stack is empty (nothing to replace).
+
+        Caveats:
+            - If you need the scene below to receive ``on_resume`` and
+              ``on_pause``, call ``pop_scene()`` then ``push_scene()``
+              explicitly instead.
+        """
+        return self._scene_stack.replace(scene)
 
     def run(self, *, loop: bool = True) -> None:
         """Start the engine's main loop.

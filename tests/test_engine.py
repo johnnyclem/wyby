@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from wyby._logging import _LIBRARY_LOGGER_NAME
+from wyby.scene import Scene
 from wyby.app import (
     Engine,
     _DEFAULT_HEIGHT,
@@ -982,3 +983,190 @@ class TestEngineDebugRepr:
         assert repr(engine) == (
             "Engine(title='Snake', width=40, height=20, tps=30, debug=True)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Concrete Scene subclass for testing Engine scene methods
+# ---------------------------------------------------------------------------
+
+
+class _DummyScene(Scene):
+    """Minimal concrete Scene for testing Engine scene convenience methods."""
+
+    def __init__(self, name: str = "dummy") -> None:
+        super().__init__()
+        self.name = name
+        self.calls: list[str] = []
+
+    def update(self, dt: float) -> None:
+        self.calls.append("update")
+
+    def render(self) -> None:
+        self.calls.append("render")
+
+    def on_enter(self) -> None:
+        self.calls.append("on_enter")
+
+    def on_exit(self) -> None:
+        self.calls.append("on_exit")
+
+    def on_pause(self) -> None:
+        self.calls.append("on_pause")
+
+    def on_resume(self) -> None:
+        self.calls.append("on_resume")
+
+    def __repr__(self) -> str:
+        return f"_DummyScene({self.name!r})"
+
+
+# ---------------------------------------------------------------------------
+# push_scene
+# ---------------------------------------------------------------------------
+
+
+class TestEnginePushScene:
+    """Engine.push_scene() delegates to SceneStack.push()."""
+
+    def test_push_scene_adds_to_stack(self) -> None:
+        engine = Engine()
+        scene = _DummyScene("a")
+        engine.push_scene(scene)
+        assert engine.scenes.peek() is scene
+
+    def test_push_scene_calls_on_enter(self) -> None:
+        engine = Engine()
+        scene = _DummyScene("a")
+        engine.push_scene(scene)
+        assert "on_enter" in scene.calls
+
+    def test_push_scene_pauses_previous_top(self) -> None:
+        engine = Engine()
+        first = _DummyScene("first")
+        second = _DummyScene("second")
+        engine.push_scene(first)
+        engine.push_scene(second)
+        assert "on_pause" in first.calls
+
+    def test_push_scene_rejects_non_scene(self) -> None:
+        engine = Engine()
+        with pytest.raises(TypeError):
+            engine.push_scene("not a scene")  # type: ignore[arg-type]
+
+    def test_push_scene_respects_max_depth(self) -> None:
+        engine = Engine()
+        # Default max_depth is 32; fill it up then push one more.
+        for i in range(32):
+            engine.push_scene(_DummyScene(f"s{i}"))
+        with pytest.raises(RuntimeError, match="depth limit"):
+            engine.push_scene(_DummyScene("overflow"))
+
+
+# ---------------------------------------------------------------------------
+# pop_scene
+# ---------------------------------------------------------------------------
+
+
+class TestEnginePopScene:
+    """Engine.pop_scene() delegates to SceneStack.pop()."""
+
+    def test_pop_scene_returns_top(self) -> None:
+        engine = Engine()
+        scene = _DummyScene("a")
+        engine.push_scene(scene)
+        popped = engine.pop_scene()
+        assert popped is scene
+
+    def test_pop_scene_calls_on_exit(self) -> None:
+        engine = Engine()
+        scene = _DummyScene("a")
+        engine.push_scene(scene)
+        engine.pop_scene()
+        assert "on_exit" in scene.calls
+
+    def test_pop_scene_resumes_scene_below(self) -> None:
+        engine = Engine()
+        first = _DummyScene("first")
+        second = _DummyScene("second")
+        engine.push_scene(first)
+        engine.push_scene(second)
+        engine.pop_scene()
+        assert "on_resume" in first.calls
+
+    def test_pop_scene_empty_stack_raises(self) -> None:
+        engine = Engine()
+        with pytest.raises(RuntimeError, match="empty"):
+            engine.pop_scene()
+
+    def test_pop_scene_leaves_stack_empty(self) -> None:
+        engine = Engine()
+        engine.push_scene(_DummyScene("a"))
+        engine.pop_scene()
+        assert engine.scenes.is_empty
+
+
+# ---------------------------------------------------------------------------
+# replace_scene
+# ---------------------------------------------------------------------------
+
+
+class TestEngineReplaceScene:
+    """Engine.replace_scene() delegates to SceneStack.replace()."""
+
+    def test_replace_scene_returns_old(self) -> None:
+        engine = Engine()
+        old = _DummyScene("old")
+        new = _DummyScene("new")
+        engine.push_scene(old)
+        returned = engine.replace_scene(new)
+        assert returned is old
+
+    def test_replace_scene_new_on_top(self) -> None:
+        engine = Engine()
+        old = _DummyScene("old")
+        new = _DummyScene("new")
+        engine.push_scene(old)
+        engine.replace_scene(new)
+        assert engine.scenes.peek() is new
+
+    def test_replace_scene_calls_exit_and_enter(self) -> None:
+        engine = Engine()
+        old = _DummyScene("old")
+        new = _DummyScene("new")
+        engine.push_scene(old)
+        engine.replace_scene(new)
+        assert "on_exit" in old.calls
+        assert "on_enter" in new.calls
+
+    def test_replace_scene_no_pause_resume_on_scene_below(self) -> None:
+        engine = Engine()
+        bottom = _DummyScene("bottom")
+        old_top = _DummyScene("old_top")
+        new_top = _DummyScene("new_top")
+        engine.push_scene(bottom)
+        engine.push_scene(old_top)
+        # Clear the on_pause from the push above.
+        bottom.calls.clear()
+        engine.replace_scene(new_top)
+        # bottom should NOT have received on_pause or on_resume.
+        assert "on_pause" not in bottom.calls
+        assert "on_resume" not in bottom.calls
+
+    def test_replace_scene_empty_stack_raises(self) -> None:
+        engine = Engine()
+        with pytest.raises(RuntimeError, match="empty"):
+            engine.replace_scene(_DummyScene("new"))
+
+    def test_replace_scene_rejects_non_scene(self) -> None:
+        engine = Engine()
+        engine.push_scene(_DummyScene("existing"))
+        with pytest.raises(TypeError):
+            engine.replace_scene(42)  # type: ignore[arg-type]
+
+    def test_replace_scene_preserves_stack_depth(self) -> None:
+        engine = Engine()
+        engine.push_scene(_DummyScene("a"))
+        engine.push_scene(_DummyScene("b"))
+        assert len(engine.scenes) == 2
+        engine.replace_scene(_DummyScene("c"))
+        assert len(engine.scenes) == 2
