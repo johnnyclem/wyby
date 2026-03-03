@@ -25,10 +25,10 @@ Quit handling:
        way for scenes to quit the game without needing a reference to
        the engine.
 
-    Once the input layer is implemented, the engine will raise
-    ``QuitSignal`` automatically when configurable quit keys (e.g.,
-    Escape, ``q``) are pressed.  Until then, games should raise
-    ``QuitSignal`` from their own input-checking logic.
+    The engine does not automatically raise ``QuitSignal`` for any
+    particular key.  Games should check for quit keys (e.g., Escape,
+    ``q``) in their scene's ``update()`` and raise ``QuitSignal``
+    explicitly.
 
 Graceful shutdown:
     Regardless of *how* the engine stops — ``stop()``, Ctrl+C,
@@ -62,9 +62,9 @@ Graceful shutdown:
           a fundamental OS limitation — ``SIGKILL`` cannot be caught.
 
 Caveats:
-    - **Early implementation.** The scene stack and event queue are
-      wired into the main loop, but the input layer (keyboard polling)
-      and renderer (Rich ``Live`` display) are not yet connected.
+    - **Early implementation.** The scene stack, event queue, and input
+      manager are wired into the main loop.  The renderer (Rich ``Live``
+      display) is not yet automatically connected to scene output.
     - The game loop targets ~30 ticks per second by default, but actual
       frame rate depends on terminal emulator, grid size, and style
       complexity. Do not assume 60 FPS — that is not a meaningful target
@@ -103,6 +103,7 @@ from typing import TYPE_CHECKING
 from wyby._logging import configure_logging
 from wyby.diagnostics import FPSCounter
 from wyby.event import EventQueue
+from wyby.input import InputManager
 from wyby.renderer import LiveDisplay, create_console
 from wyby.scene import SceneStack
 
@@ -266,10 +267,11 @@ class QuitSignal(Exception):
           ``KeyboardInterrupt`` for shutdown behaviour — both result
           in a clean stop.  Future versions may expose the quit reason
           via a callback or property.
-        - Once the input layer is implemented, the engine will raise
-          ``QuitSignal`` when configurable quit keys (e.g., Escape,
-          ``q``) are detected.  Until then, games must raise it
-          manually from their input-handling logic.
+        - The engine does not automatically raise ``QuitSignal`` for
+          any particular key.  Games must check for quit keys in their
+          scene's ``update()`` method and raise ``QuitSignal``
+          explicitly.  This keeps quit-key policy in game code rather
+          than the framework.
     """
 
 
@@ -343,6 +345,7 @@ class Engine:
         "_scene_stack",
         "_console",
         "_live_display",
+        "_input_manager",
     )
 
     def __init__(
@@ -356,6 +359,7 @@ class Engine:
         *,
         config: EngineConfig | None = None,
         console: Console | None = None,
+        input_manager: InputManager | None = None,
     ) -> None:
         if config is not None:
             # When a config object is provided, use its values.
@@ -429,6 +433,39 @@ class Engine:
             console if console is not None else create_console()
         )
         self._live_display = LiveDisplay(console=self._console)
+
+        # Optional InputManager for automatic input polling.
+        # When provided, the engine takes ownership: it starts the
+        # manager in run() and stops it in _shutdown().  Each tick,
+        # the engine polls the manager and posts any events to the
+        # event queue before draining.
+        #
+        # When None (default), the engine does not poll for input
+        # automatically — game code must post events manually via
+        # engine.events.post().  This is useful for testing and
+        # headless scenarios.
+        #
+        # Caveats:
+        #   - The InputManager enters raw mode on start(), which
+        #     disables terminal echo and line editing.  If the engine
+        #     crashes without calling _shutdown(), the terminal will
+        #     be left in a broken state.  Use AltScreen as an outer
+        #     context manager for safety.
+        #   - The InputManager is single-threaded — poll() must only
+        #     be called from the main loop thread (which it is, since
+        #     _tick() runs on the main thread).
+        #   - If the InputManager was already started before being
+        #     passed to the Engine, the engine will not start it again
+        #     (InputManager.start() is idempotent).  However, the
+        #     engine will still stop it during shutdown.
+        if input_manager is not None and not isinstance(
+            input_manager, InputManager
+        ):
+            raise TypeError(
+                f"input_manager must be an InputManager or None, "
+                f"got {type(input_manager).__name__}"
+            )
+        self._input_manager = input_manager
 
         _logger.debug(
             "Engine initialized: title=%r, width=%d, height=%d, "
@@ -539,6 +576,23 @@ class Engine:
         return self._live_display
 
     @property
+    def input_manager(self) -> InputManager | None:
+        """The :class:`InputManager` used for automatic input polling.
+
+        Returns ``None`` if no input manager was provided at
+        construction time.  When present, the engine polls for input
+        each tick and posts events to the :attr:`events` queue.
+
+        Caveats:
+            - The engine starts and stops the input manager
+              automatically.  Do not call ``start()`` or ``stop()``
+              on it directly while the engine is running.
+            - In test or headless scenarios, leave this as ``None``
+              and post events manually via ``engine.events.post()``.
+        """
+        return self._input_manager
+
+    @property
     def target_dt(self) -> float:
         """Fixed timestep duration in seconds (``1.0 / tps``).
 
@@ -641,12 +695,14 @@ class Engine:
                 ``False``, execute a single tick and return.
 
         Caveats:
-            - Each tick runs three phases: drain the event queue
-              (input), call the active scene's ``update(dt)`` (update),
-              and call the active scene's ``render()`` (render).  The
-              input layer and Rich renderer are not yet connected —
-              events must be posted manually and ``render()`` output
-              is not yet displayed.
+            - Each tick runs three phases: poll input and drain the
+              event queue (input), call the active scene's
+              ``update(dt)`` (update), and call the active scene's
+              ``render()`` (render).  If an :class:`InputManager` is
+              attached, input polling is automatic; otherwise events
+              must be posted manually.  The Rich renderer is not yet
+              automatically connected — ``render()`` output is not
+              yet displayed.
             - **Sleep granularity.** ``time.sleep()`` precision is
               OS-dependent (typically 1–10 ms).  The accumulator
               self-corrects for overshoot on the next frame.
@@ -688,6 +744,13 @@ class Engine:
         # on clock adjustment.  For a game loop where correctness matters
         # more than nanosecond precision, monotonic is the safer choice.
         self._last_tick_time = time.monotonic()
+
+        # Start the InputManager if one was provided.  start() is
+        # idempotent, so this is safe even if the manager was already
+        # started externally.
+        if self._input_manager is not None:
+            self._input_manager.start()
+
         _logger.debug("Engine.run() starting (loop=%s)", loop)
 
         try:
@@ -836,6 +899,19 @@ class Engine:
 
         self._event_queue.clear()
 
+        # Stop the InputManager if one was provided.  This restores
+        # the terminal to cooked mode (echo, line editing).  stop()
+        # is idempotent — safe even if the manager was never started
+        # or was already stopped.
+        #
+        # Caveat: if stop() raises (e.g., due to a bug in the
+        # platform backend), the Live display may not be stopped.
+        # This is acceptable — the Live display stop is best-effort
+        # cleanup, and an InputManager stop failure is a more serious
+        # issue that should propagate.
+        if self._input_manager is not None:
+            self._input_manager.stop()
+
         # Stop the Live display if it was started (by game code or a
         # Renderer).  This restores cursor visibility and cleans up
         # Rich's terminal state.  Idempotent — safe even if the
@@ -854,11 +930,12 @@ class Engine:
 
         The tick follows a strict three-phase structure:
 
-        1. **Input** — drain all pending events from the event queue.
-           Events are collected into a list but not automatically
-           dispatched to the scene.  The input layer (not yet
-           implemented) will post ``KeyEvent`` objects here; for now,
-           game code can post custom events via ``engine.events.post()``.
+        1. **Input** — if an :class:`InputManager` is attached, poll it
+           for new keyboard/mouse events and post them to the event
+           queue.  Then drain all pending events.  Events are collected
+           into a list but not automatically dispatched to the scene —
+           scenes should read events from the drained list or maintain
+           their own state based on events posted during previous ticks.
         2. **Update** — call the active (top) scene's ``update(dt)``
            method with the fixed timestep.  If the scene stack is empty,
            this phase is skipped.
@@ -866,12 +943,12 @@ class Engine:
            If the scene stack is empty, this phase is skipped.
 
         Caveats:
-            - The input phase drains events but does not dispatch them
-              to the scene automatically.  Event routing will be added
-              when the input subsystem is implemented.  Until then,
-              scenes that need input must poll their own state or read
-              events from the engine's queue before ``drain()`` is
-              called.
+            - The input phase polls the InputManager (if present) and
+              drains events, but does not dispatch them to the scene
+              automatically.  Scenes that need input should inspect the
+              event queue before drain() is called (e.g., by reading
+              events posted in the previous tick) or maintain their own
+              input state.
             - Update and render are called on the same scene reference
               obtained once per tick.  If ``update()`` mutates the scene
               stack (e.g., pushes a pause menu), the *original* scene
@@ -892,10 +969,16 @@ class Engine:
         self._tick_count += 1
 
         # -- Phase 1: Input --
-        # Drain all events posted since the last tick.  The input layer
-        # (once implemented) will post KeyEvents here each frame.  For
-        # now the queue is typically empty unless game code posts custom
-        # events.
+        # Poll the InputManager (if present) for new keyboard/mouse
+        # events and post them to the event queue.  Then drain all
+        # queued events.
+        #
+        # Caveat: InputManager.poll() may raise KeyboardInterrupt if
+        # Ctrl+C is pressed.  This propagates up through _tick() to
+        # the try/except in run(), which handles it as a clean stop.
+        if self._input_manager is not None:
+            for event in self._input_manager.poll():
+                self._event_queue.post(event)
         self._event_queue.drain()
 
         # -- Phase 2: Update --
