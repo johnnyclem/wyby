@@ -115,6 +115,7 @@ from wyby.input import InputManager
 from wyby.renderer import LiveDisplay, Renderer, create_console
 from wyby.scene import Scene, SceneStack
 from wyby.signal_handlers import SignalHandler
+from wyby.viewport import Viewport
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -345,6 +346,7 @@ class Engine:
         "_scene_stack",
         "_console",
         "_renderer",
+        "_viewport",
         "_input_manager",
         "_signal_handler",
     )
@@ -429,6 +431,13 @@ class Engine:
         # causing display corruption.
         self._console = console if console is not None else create_console()
         self._renderer = Renderer(console=self._console)
+
+        # Viewport for centering the game buffer within the terminal.
+        # The viewport automatically queries the terminal size each
+        # frame and centers the game's CellBuffer, adding letterbox
+        # borders when the terminal is larger than the game grid and
+        # clipping symmetrically when smaller.
+        self._viewport = Viewport(border_bg="black")
 
         # Optional InputManager for automatic input polling.
         # When provided, the engine takes ownership: it starts the
@@ -581,6 +590,21 @@ class Engine:
               :meth:`~wyby.scene.Scene.render` call.
         """
         return self._renderer
+
+    @property
+    def viewport(self) -> Viewport:
+        """The :class:`Viewport` used for centering game content in the terminal.
+
+        The viewport wraps the game's CellBuffer and centers it within
+        the actual terminal dimensions, filling the border area with
+        a configurable background (default: black).
+
+        Customize the border style::
+
+            engine.viewport._border_bg = "#1a1a2e"
+            engine.viewport._border_char = "."
+        """
+        return self._viewport
 
     @property
     def input_manager(self) -> InputManager | None:
@@ -1142,12 +1166,17 @@ class Engine:
         for s in self._scene_stack.scenes_to_render():
             s.render()
             # After rendering, present the scene's buffer to the terminal
-            # if it has one.  This automatic wiring allows scenes to
-            # simply set self.buffer = CellBuffer(...) and have their
-            # output appear without manually calling the renderer.
+            # if it has one.  The viewport centers the game buffer
+            # within the actual terminal dimensions, adding letterbox
+            # borders when the terminal is larger and clipping
+            # symmetrically when smaller.  This automatic wiring allows
+            # scenes to simply set self.buffer = CellBuffer(...) and
+            # have their output appear centered without manually calling
+            # the renderer.
             if hasattr(s, "buffer") and isinstance(s.buffer, CellBuffer):
                 if self._renderer is not None:
-                    self._renderer.present(s.buffer)
+                    self._viewport.set_buffer(s.buffer)
+                    self._renderer.present(self._viewport)
 
         # -- FPS tracking --
         # Record the tick timestamp for FPS computation.  This is done

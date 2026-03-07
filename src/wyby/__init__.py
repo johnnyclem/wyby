@@ -115,6 +115,7 @@ from wyby.render_warnings import (
 from wyby.renderer import LiveDisplay, Renderer, create_console
 from wyby.test_renderer import TestRendererBuffer
 from wyby.resize import ResizeHandler, get_terminal_size
+from wyby.viewport import Viewport
 from wyby.scene import Scene, SceneStack
 from wyby.save import (
     SaveError,
@@ -532,4 +533,5 @@ __all__ = [
     "format_troubleshooting_for_category",
     "format_troubleshooting_guide",
     "get_troubleshooting_entries_by_category",
+    "Viewport",
 ]

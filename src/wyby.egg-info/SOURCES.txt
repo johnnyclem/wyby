@@ -64,6 +64,7 @@ src/wyby/transforms.py
 src/wyby/transition.py
 src/wyby/unicode.py
 src/wyby/velocity.py
+src/wyby/viewport.py
 src/wyby/widget.py
 src/wyby.egg-info/PKG-INFO
 src/wyby.egg-info/SOURCES.txt
@@ -165,5 +166,6 @@ tests/test_transforms.py
 tests/test_transition.py
 tests/test_unicode.py
 tests/test_velocity.py
+tests/test_viewport.py
 tests/test_widget.py
 tests/test_z_order.py
